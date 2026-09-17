@@ -752,7 +752,9 @@
       function readLyricsCache(videoId) {
         try {
           const value = JSON.parse(localStorage.getItem(lyricsCacheKey(videoId)) || 'null');
-          return value && Array.isArray(value.lines) && Array.isArray(value.timing) ? value : null;
+          if (!value || !Array.isArray(value.lines) || !Array.isArray(value.timing)) return null;
+          const pairs = value.lines.map((line, index) => ({ line: String(line || '').trim(), timing: value.timing[index] })).filter((pair) => pair.line && !isNonLyricMarker(pair.line));
+          return { ...value, lines: pairs.map((pair) => pair.line), timing: pairs.map((pair) => pair.timing || null) };
         } catch { return null; }
       }
       function writeLyricsCache(videoId, payload) {
