@@ -881,6 +881,97 @@
         const phraseTokens = line.match(/每一個夜裡都在想你|[\u4e00-\u9fff]|[\s]+|[^\u4e00-\u9fff\s]/g);
         return phraseTokens || [line];
       }
+
+      // Korean lyrics are not limited to the small demo dictionary above. These
+      // tables decompose any Hangul syllable into a readable Chinese/Japanese
+      // approximation instead of copying an unknown Hangul token unchanged.
+      const koInitialRoman = ['g', 'kk', 'n', 'd', 'tt', 'r', 'm', 'b', 'pp', 's', 'ss', '', 'j', 'jj', 'ch', 'k', 't', 'p', 'h'];
+      const koVowelRoman = ['a', 'ae', 'ya', 'yae', 'eo', 'e', 'yeo', 'ye', 'o', 'wa', 'wae', 'oe', 'yo', 'u', 'wo', 'we', 'wi', 'yu', 'eu', 'ui', 'i'];
+      const koFinalRoman = ['', 'k', 'k', 'ks', 'n', 'nj', 'nh', 't', 'l', 'lk', 'lm', 'lb', 'ls', 'lt', 'lp', 'lh', 'm', 'p', 'ps', 't', 't', 'ng', 't', 't', 'k', 't', 'p', 't'];
+      const koRomanZh = {
+        a: '啊', ae: '欸', ya: '呀', yae: '耶', eo: '喔', e: '欸', yeo: '喲', ye: '耶', o: '喔', wa: '哇', wae: '歪', oe: '威', yo: '唷', u: '嗚', wo: '窩', we: '威', wi: '威', yu: '優', eu: '呃', ui: '威', i: '伊',
+        ga: '嘎', ge: '給', geo: '哥', geon: '根', gi: '基', go: '勾', gu: '咕', gyeo: '給喲',
+        na: '拿', neo: '諾', ne: '捏', ni: '尼', no: '諾', nu: '努',
+        da: '達', deo: '德', de: '得', di: '迪', do: '都', du: '杜',
+        ra: '拉', reo: '羅', re: '勒', ri: '里', ro: '羅', ru: '魯', reul: '勒',
+        ma: '媽', me: '美', mi: '咪', mo: '摸', mu: '姆', myeon: '面',
+        ba: '巴', be: '貝', bi: '比', bo: '波', bu: '布', bip: '比',
+        sa: '撒', se: '塞', seo: '搜', si: '西', so: '索', su: '蘇',
+        ja: '恰', je: '介', jeo: '啾', ji: '基', jo: '啾', ju: '朱', jot: '啾',
+        cha: '恰', che: '切', cheo: '秋', chi: '契', cho: '秋', chu: '啾',
+        ka: '卡', ke: '開', keo: '口', ki: '基', ko: '口', ku: '庫',
+        ta: '塔', te: '特', teo: '托', ti: '提', to: '托', tu: '吐',
+        pa: '帕', pe: '佩', peo: '坡', pi: '皮', po: '波', pu: '普',
+        ha: '哈', he: '嘿', heo: '喝', hi: '希', ho: '齁', hu: '呼', hae: '嘿',
+        han: '韓', mal: '馬', myeon: '面', eon: '恩', eun: '恩', neun: '嫩',
+        rang: '朗', sarang: '撒朗', saranghae: '撒朗嘿'
+      };
+      const koRomanZhOnset = { g: '哥', kk: '卡', n: '呢', d: '達', tt: '塔', r: '拉', m: '媽', b: '巴', pp: '帕', s: '撒', ss: '薩', j: '恰', jj: '恰', ch: '擦', k: '卡', t: '塔', p: '帕', h: '哈', '': '' };
+      const koRomanZhVowel = { a: '啊', ae: '欸', ya: '呀', yae: '耶', eo: '喔', e: '欸', yeo: '喲', ye: '耶', o: '喔', wa: '哇', wae: '歪', oe: '威', yo: '唷', u: '嗚', wo: '窩', we: '威', wi: '威', yu: '優', eu: '呃', ui: '威', i: '伊' };
+      const koRomanZhCoda = { k: '克', ks: '克斯', n: '恩', nj: '恩吉', nh: '恩哈', t: '特', l: '勒', lk: '勒克', lm: '勒姆', lb: '勒布', ls: '勒斯', lt: '勒特', lp: '勒普', lh: '勒哈', m: '姆', p: '普', ps: '普斯', ng: '昂' };
+      const koRomanKana = {
+        a: 'ア', ae: 'エ', ya: 'ヤ', yae: 'イェ', eo: 'オ', e: 'エ', yeo: 'ヨ', ye: 'イェ', o: 'オ', wa: 'ワ', wae: 'ウェ', oe: 'ウェ', yo: 'ヨ', u: 'ウ', wo: 'ウォ', we: 'ウェ', wi: 'ウィ', yu: 'ユ', eu: 'ウ', ui: 'ウィ', i: 'イ',
+        ga: 'ガ', ge: 'ゲ', geo: 'ゴ', gi: 'ギ', go: 'ゴ', gu: 'グ', gyeo: 'ギョ',
+        na: 'ナ', neo: 'ノ', ne: 'ネ', ni: 'ニ', no: 'ノ', nu: 'ヌ',
+        da: 'ダ', deo: 'ド', de: 'デ', di: 'ディ', do: 'ド', du: 'ドゥ',
+        ra: 'ラ', reo: 'ロ', re: 'レ', ri: 'リ', ro: 'ロ', ru: 'ル', reu: 'ル',
+        ma: 'マ', me: 'メ', mi: 'ミ', mo: 'モ', mu: 'ム', myeon: 'ミョン',
+        ba: 'バ', be: 'ベ', bi: 'ビ', bo: 'ボ', bu: 'ブ', bip: 'ビッ',
+        sa: 'サ', se: 'セ', seo: 'ソ', si: 'シ', so: 'ソ', su: 'ス',
+        ja: 'ジャ', je: 'ジェ', jeo: 'ジョ', ji: 'ジ', jo: 'ジョ', ju: 'ジュ', jot: 'ジョッ',
+        cha: 'チャ', che: 'チェ', cheo: 'チョ', chi: 'チ', cho: 'チョ', chu: 'チュ',
+        ka: 'カ', ke: 'ケ', keo: 'コ', ki: 'キ', ko: 'コ', ku: 'ク',
+        ta: 'タ', te: 'テ', teo: 'ト', ti: 'ティ', to: 'ト', tu: 'トゥ',
+        pa: 'パ', pe: 'ペ', peo: 'ポ', pi: 'ピ', po: 'ポ', pu: 'プ',
+        ha: 'ハ', he: 'ヘ', heo: 'ホ', hi: 'ヒ', ho: 'ホ', hu: 'フ', hae: 'ヘ',
+        han: 'ハン', mal: 'マル', eon: 'オン', eun: 'ウン', neun: 'ヌン', rang: 'ラン', saranghae: 'サランヘ'
+      };
+      const koRomanKanaOnset = { g: 'グ', kk: 'ク', n: 'ヌ', d: 'ド', tt: 'ト', r: 'ル', m: 'ム', b: 'ブ', pp: 'プ', s: 'ス', ss: 'ス', j: 'ジ', jj: 'ジ', ch: 'チ', k: 'ク', t: 'ト', p: 'プ', h: 'フ', '': '' };
+      const koRomanKanaCoda = { k: 'ク', ks: 'クス', n: 'ン', nj: 'ンジ', nh: 'ンハ', t: 'ト', l: 'ル', lk: 'ルク', lm: 'ルム', lb: 'ルブ', ls: 'ルス', lt: 'ルト', lp: 'ルプ', lh: 'ルハ', m: 'ム', p: 'プ', ps: 'プス', ng: 'ン' };
+      const koBopomofoOnset = { g: 'ㄍ', kk: 'ㄎ', n: 'ㄋ', d: 'ㄉ', tt: 'ㄊ', r: 'ㄌ', m: 'ㄇ', b: 'ㄅ', pp: 'ㄆ', s: 'ㄙ', ss: 'ㄙ', j: 'ㄐ', jj: 'ㄐ', ch: 'ㄑ', k: 'ㄎ', t: 'ㄊ', p: 'ㄆ', h: 'ㄏ', '': '' };
+      const koBopomofoVowel = { a: 'ㄚ', ae: 'ㄟ', ya: 'ㄧㄚ', yae: 'ㄧㄟ', eo: 'ㄜ', e: 'ㄟ', yeo: 'ㄧㄜ', ye: 'ㄧㄝ', o: 'ㄛ', wa: 'ㄨㄚ', wae: 'ㄨㄞ', oe: 'ㄨㄟ', yo: 'ㄧㄛ', u: 'ㄨ', wo: 'ㄨㄛ', we: 'ㄨㄟ', wi: 'ㄨㄧ', yu: 'ㄩ', eu: 'ㄜ', ui: 'ㄨㄟ', i: 'ㄧ' };
+      const koBopomofoCoda = { k: 'ㄎ', ks: 'ㄎㄙ', n: 'ㄋ', nj: 'ㄋㄐ', nh: 'ㄋㄏ', t: 'ㄊ', l: 'ㄌ', lk: 'ㄌㄎ', lm: 'ㄌㄇ', lb: 'ㄌㄅ', ls: 'ㄌㄙ', lt: 'ㄌㄊ', lp: 'ㄌㄆ', lh: 'ㄌㄏ', m: 'ㄇ', p: 'ㄆ', ps: 'ㄆㄙ', ng: 'ㄥ' };
+
+      function koreanSyllableToRoman(character) {
+        if (!/^[가-힣]$/.test(character)) return character;
+        const code = character.charCodeAt(0) - 0xAC00;
+        const initial = Math.floor(code / 588);
+        const vowel = Math.floor((code % 588) / 28);
+        const final = code % 28;
+        return koInitialRoman[initial] + koVowelRoman[vowel] + koFinalRoman[final];
+      }
+      function parseKoreanRoman(roman) {
+        const value = String(roman).toLowerCase();
+        const initial = koInitialRoman.filter(Boolean).sort((a, b) => b.length - a.length).find((item) => value.startsWith(item)) || '';
+        const remainder = value.slice(initial.length);
+        const vowel = koVowelRoman.slice().sort((a, b) => b.length - a.length).find((item) => remainder.startsWith(item)) || '';
+        return { initial, vowel, coda: remainder.slice(vowel.length), base: initial + vowel };
+      }
+      function koreanRomanToZh(roman) {
+        if (koRomanZh[roman]) return koRomanZh[roman];
+        const parsed = parseKoreanRoman(roman);
+        return (koRomanZhOnset[parsed.initial] + (koRomanZhVowel[parsed.vowel] || '啊') + (koRomanZhCoda[parsed.coda] || '')).trim() || '啊';
+      }
+      function koreanRomanToKana(roman) {
+        if (koRomanKana[roman]) return koRomanKana[roman];
+        const parsed = parseKoreanRoman(roman);
+        const base = koRomanKana[parsed.base] || (koRomanKanaOnset[parsed.initial] + (koRomanKana[parsed.vowel] || 'ア'));
+        return base + (koRomanKanaCoda[parsed.coda] || '');
+      }
+      function koreanRomanToBopomofo(roman) {
+        const parsed = parseKoreanRoman(roman);
+        return (koBopomofoOnset[parsed.initial] + (koBopomofoVowel[parsed.vowel] || '') + (koBopomofoCoda[parsed.coda] || '')).trim();
+      }
+      function koreanSoundFallback(token) {
+        const syllables = Array.from(token).filter((character) => /^[가-힣]$/.test(character));
+        const romans = syllables.map(koreanSyllableToRoman);
+        return {
+          zh: romans.map(koreanRomanToZh).join(' '),
+          ko: token,
+          ja: romans.map(koreanRomanToKana).join(' '),
+          bopomofo: romans.map(koreanRomanToBopomofo).join(' ')
+        };
+      }
       function fallbackToken(token, language) {
         if (/^\s+$/.test(token)) return { source: token, zh: ' ', ko: ' ', ja: ' ', bopomofo: '' };
         if (language === 'zh') {
@@ -888,6 +979,10 @@
           return { source: token, zh: token, ko: roman[0], ja: roman[1], bopomofo: roman[2] };
         }
         if (language === 'ko') {
+          if (/^[가-힣]+$/.test(token)) {
+            const values = koreanSoundFallback(token);
+            return { source: token, zh: values.zh, ko: values.ko, ja: values.ja, bopomofo: values.bopomofo };
+          }
           const values = koMap[token] || [token, token, token, ''];
           return { source: token, zh: values[0], ko: values[1], ja: values[2], bopomofo: values[3] };
         }
