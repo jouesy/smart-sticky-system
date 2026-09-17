@@ -13,6 +13,12 @@
 
 金融試算與消費比對會優先使用內建的 V10.1 本機功能。需要文字解釋、摘要或客服話術時，才會使用 Gemini。
 
+## 空耳房 v2.0
+
+`dist/index.html` 是韓・中・日三語同步動態歌詞播放器，支援歌詞空耳、YouTube 歌源、LRC／SRT／VTT 時間碼、手動打點、整首偏移、逐句跳轉與 Karaoke Highlight。
+
+YouTube 歌名搜尋需要在頁面內自行設定 YouTube Data API Key；Key 只會保存在瀏覽器本機，不應寫入原始碼或提交到 Git。沒有 Key 時仍可直接貼 YouTube URL 或 videoId。
+
 ## 注意事項
 
 這是純前端單檔應用程式。若要正式部署給多人使用，建議改由後端 Proxy 管理 Gemini API Key，避免在瀏覽器端暴露金鑰。
