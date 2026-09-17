@@ -449,14 +449,14 @@
       </aside>
 
       <section class="panel results-column" aria-live="polite">
-        <div class="song-console" aria-label="YouTube 歌源搜尋">
+        <div class="song-console" aria-label="YT Music 歌源搜尋">
           <div class="console-top">
-            <div class="console-title"><div class="console-icon">⌕</div><div><h3>搜尋歌源</h3><p>官方 YouTube 播放器・共用同一條歌詞時間軸</p></div></div>
+            <div class="console-title"><div class="console-icon">⌕</div><div><h3>搜尋歌源</h3><p>YT Music 歌曲優先・官方 YouTube 播放器共用時間軸</p></div></div>
             <button class="api-key-button" id="apiKeyBtn" type="button">設定 API Key</button>
           </div>
           <div class="song-search"><input id="songSearch" type="search" autocomplete="off" placeholder="歌曲名＋歌手，例如 Supernova aespa" aria-label="搜尋歌曲"><button class="button button-primary small-button" id="searchSongBtn" type="button">搜尋</button></div>
           <div class="api-key-row" id="apiKeyRow"><input id="apiKeyInput" type="password" autocomplete="off" placeholder="貼上 YouTube Data API Key"><button class="button button-ghost small-button" id="saveApiKeyBtn" type="button">儲存</button></div>
-          <p class="console-note">沒有 API Key 也能直接貼 YouTube 連結或 videoId；Key 只保存在這台裝置。</p>
+          <p class="console-note">輸入歌曲名會優先搜尋 YT Music；YouTube Data API Key 僅作為搜尋備援，Key 只保存在這台裝置。也能直接貼 YouTube 連結或 videoId；選歌後會自動尋找 YT Music 原生動態歌詞。</p>
           <div class="search-status" id="searchStatus" role="status"></div>
           <div class="search-results" id="searchResults" hidden></div>
           <div class="selected-source" id="selectedSource" hidden><div><strong>目前歌源</strong><span id="selectedSourceTitle"></span><small id="lyricsMatchStatus">選歌後自動尋找同步歌詞</small></div><button class="open-music" id="openMusicBtn" type="button">在 YouTube Music 開啟 ↗</button></div>
@@ -529,6 +529,7 @@
       };
       const flags = { zh: '🇹🇼', ko: '🇰🇷', ja: '🇯🇵' };
       const names = { zh: '中文', ko: '韓文', ja: '日文' };
+      const YTMUSIC_API_BASE = '/api/ytmusic';
       const state = { language: 'auto', mode: 'precision', candidate: 0, view: 'lines', speed: 1, isPlaying: false, isEditing: false, lines: [], timing: [], offset: 0, markIndex: 0, focus: 'all', playerMode: 'normal', activeLine: -1, selectedVideoId: '', selectedVideoTitle: '', selectedVideoDuration: 0, selectedSourceItem: null, playerReady: false, playerFallback: false, lyricsLoading: false, lyricsReady: false, autoLyricsMeta: null };
       let playTimer = null;
       let youtubePlayer = null;
@@ -556,6 +557,7 @@
         return Number(match[1] || 0) * 3600 + Number(match[2] || 0) * 60 + Number(match[3] || 0);
       }
       function sourceBadge(item) {
+        if (item && item.source === 'youtube-music') return 'YT Music 歌曲';
         const text = ((item.snippet && item.snippet.title) || '') + ' ' + ((item.snippet && item.snippet.channelTitle) || '');
         if (/official\s*audio/i.test(text)) return 'Official Audio';
         if (/official\s*(mv|video)|music video/i.test(text)) return 'Official MV';
@@ -575,6 +577,25 @@
         box.innerHTML = items.map((item, index) => sourceCardHTML(item, index)).join(''); box.hidden = !items.length;
         box.querySelectorAll('.choose-source').forEach((button) => button.addEventListener('click', () => chooseSource(items[Number(button.dataset.resultIndex)])));
       }
+      async function fetchYouTubeMusicSearch(query) {
+        const response = await fetch(YTMUSIC_API_BASE + '/search?q=' + encodeURIComponent(query), { headers: { Accept: 'application/json' } });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'YT Music 搜尋失敗');
+        return (Array.isArray(data.items) ? data.items : []).map((item) => ({ ...item, query, source: 'youtube-music' }));
+      }
+      async function fetchYouTubeDataSearch(query, key) {
+        const params = new URLSearchParams({ part: 'snippet', type: 'video', maxResults: '6', q: query, key });
+        const response = await fetch('https://www.googleapis.com/youtube/v3/search?' + params.toString());
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error && data.error.message ? data.error.message : 'YouTube 搜尋失敗');
+        const items = (data.items || []).filter((item) => item.id && item.id.videoId).sort((a, b) => sourceScore(a) - sourceScore(b));
+        if (!items.length) return [];
+        const ids = items.map((item) => item.id.videoId).join(',');
+        const detailResponse = await fetch('https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id=' + encodeURIComponent(ids) + '&key=' + encodeURIComponent(key));
+        const detailData = await detailResponse.json(); const details = Object.fromEntries((detailData.items || []).map((item) => [item.id, parseDuration(item.contentDetails && item.contentDetails.duration)]));
+        items.forEach((item) => { item.duration = details[item.id.videoId] || 0; item.query = query; });
+        return items;
+      }
       async function searchSong() {
         const query = el('songSearch').value.trim();
         if (!query) { setSearchStatus('輸入歌曲名、歌手，或直接貼 YouTube 連結。'); el('songSearch').focus(); return; }
@@ -583,21 +604,21 @@
           const direct = { id: { videoId: directId }, query, snippet: { title: '已貼上的 YouTube 歌源', channelTitle: 'videoId ' + directId, thumbnails: { medium: { url: 'https://i.ytimg.com/vi/' + directId + '/mqdefault.jpg' } } } };
           renderSearchResults([direct]); setSearchStatus('已辨識 YouTube 連結，可以選擇歌源。'); return;
         }
-        const key = getApiKey();
-        if (!key) { el('apiKeyRow').classList.add('is-visible'); setSearchStatus('官方搜尋需要 YouTube Data API Key；也可以改貼 YouTube 連結。', true); return; }
-        setSearchStatus('正在搜尋官方 YouTube 歌源……'); el('searchResults').hidden = true;
+        setSearchStatus('正在搜尋 YT Music 歌曲……'); el('searchResults').hidden = true;
         try {
-          const params = new URLSearchParams({ part: 'snippet', type: 'video', maxResults: '6', q: query, key });
-          const response = await fetch('https://www.googleapis.com/youtube/v3/search?' + params.toString());
-          const data = await response.json();
-          if (!response.ok) throw new Error(data.error && data.error.message ? data.error.message : 'YouTube 搜尋失敗');
-          const items = (data.items || []).filter((item) => item.id && item.id.videoId).sort((a, b) => sourceScore(a) - sourceScore(b));
-          if (!items.length) { setSearchStatus('找不到相符歌源，換個歌曲名或歌手試試。'); return; }
-          const ids = items.map((item) => item.id.videoId).join(',');
-          const detailResponse = await fetch('https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id=' + encodeURIComponent(ids) + '&key=' + encodeURIComponent(key));
-          const detailData = await detailResponse.json(); const details = Object.fromEntries((detailData.items || []).map((item) => [item.id, parseDuration(item.contentDetails && item.contentDetails.duration)]));
-          items.forEach((item) => { item.duration = details[item.id.videoId] || 0; item.query = query; }); renderSearchResults(items); setSearchStatus('找到 ' + items.length + ' 個歌源，請選擇最適合歌詞時間軸的版本。');
-        } catch (error) { setSearchStatus('搜尋失敗：' + error.message, true); }
+          const musicItems = await fetchYouTubeMusicSearch(query);
+          if (musicItems.length) { renderSearchResults(musicItems); setSearchStatus('找到 ' + musicItems.length + ' 個 YT Music 歌曲，選歌後會自動抓原生歌詞。'); return; }
+          throw new Error('YT Music 找不到歌曲');
+        } catch (musicError) {
+          const key = getApiKey();
+          if (!key) { el('apiKeyRow').classList.add('is-visible'); setSearchStatus('YT Music 搜尋暫時沒有結果；若要使用 YouTube 官方搜尋備援，請設定 API Key。', true); return; }
+          setSearchStatus('YT Music 無結果，改用 YouTube 官方搜尋備援……');
+          try {
+            const items = await fetchYouTubeDataSearch(query, key);
+            if (!items.length) { setSearchStatus('找不到相符歌源，換個歌曲名或歌手試試。'); return; }
+            renderSearchResults(items); setSearchStatus('找到 ' + items.length + ' 個 YouTube 歌源（YT Music 暫時無結果）。');
+          } catch (error) { setSearchStatus('搜尋失敗：' + error.message, true); }
+        }
       }
       function loadYouTubeApi() {
         if (window.YT && window.YT.Player) return Promise.resolve();
@@ -665,17 +686,19 @@
       }
       function guessTrackMeta(item) {
         const snippet = item && item.snippet ? item.snippet : {};
+        const ytmusic = item && item.ytmusic ? item.ytmusic : {};
         const query = String((item && item.query) || el('songSearch').value || '').trim();
         const queryWithoutVideo = query.replace(/https?:\/\/\S+/gi, '').trim();
-        let trackName = cleanTrackTitle(snippet.title);
-        let artistName = String(snippet.channelTitle || '').replace(/\s+-\s+Topic$/i, '').trim();
+        let trackName = cleanTrackTitle(ytmusic.title || snippet.title);
+        let artistName = String(ytmusic.artist || snippet.channelTitle || '').replace(/\s+-\s+Topic$/i, '').trim();
+        const albumName = String(ytmusic.album || '').trim();
         if (!trackName || /^已貼上的 YouTube 歌源$/i.test(trackName)) {
           const queryParts = queryWithoutVideo.split(/\s+[|–—-]\s+/);
           if (queryParts.length > 1) { artistName = artistName && !/^videoId\s/i.test(artistName) ? artistName : queryParts[0].trim(); trackName = queryParts.slice(1).join(' - ').trim(); }
           else { const words = queryWithoutVideo.split(/\s+/).filter(Boolean); artistName = artistName && !/^videoId\s/i.test(artistName) ? artistName : words.shift() || ''; trackName = words.join(' '); }
         }
         if (/^videoId\s/i.test(artistName) || /^YouTube$/i.test(artistName)) artistName = '';
-        return { trackName, artistName, albumName: '', duration: Number(item && item.duration) || 0 };
+        return { trackName, artistName, albumName, duration: Number(item && item.duration) || Number(ytmusic.durationSeconds) || 0 };
       }
       function textSimilarity(left, right) {
         const a = normalizeComparable(left); const b = normalizeComparable(right);
@@ -711,6 +734,12 @@
         const searchResponse = await fetch('https://lrclib.net/api/search?' + searchParams.toString(), { headers: { Accept: 'application/json' } });
         if (!searchResponse.ok) throw new Error('同步歌詞服務暫時無法回應');
         const data = await searchResponse.json(); return Array.isArray(data) ? data : [];
+      }
+      async function fetchYouTubeMusicLyrics(videoId) {
+        const response = await fetch(YTMUSIC_API_BASE + '/lyrics?videoId=' + encodeURIComponent(videoId), { headers: { Accept: 'application/json' } });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || 'YT Music 歌詞服務暫時無法回應');
+        return data;
       }
       function normalizeTimingEntries(entries, duration) {
         const clean = entries.filter((entry) => Number.isFinite(entry.start) && String(entry.text || '').trim()).sort((a, b) => a.start - b.start);
@@ -760,15 +789,40 @@
         writeLyricsCache(videoId, { version: 1, lines, timing: state.timing, meta: state.autoLyricsMeta }); updatePipelineStatus('✓ 中文／韓文／日文空耳已同步生成');
         return true;
       }
+      function applyYouTubeMusicLyrics(payload, meta, videoId) {
+        const rawLines = Array.isArray(payload && payload.lyrics) ? payload.lyrics : [];
+        const timedEntries = payload && payload.hasTimestamps ? rawLines.map((line) => {
+          const startMs = Number(line.startTimeMilliseconds ?? line.start_time ?? line.startTimeMs);
+          const endMs = Number(line.endTimeMilliseconds ?? line.end_time ?? line.endTimeMs);
+          return { start: Number.isFinite(startMs) ? startMs / 1000 : NaN, end: Number.isFinite(endMs) && endMs > startMs ? endMs / 1000 : undefined, text: line.text || line.lyricLine || '' };
+        }) : [];
+        const syncedEntries = normalizeTimingEntries(timedEntries, state.selectedVideoDuration || meta.duration || 0);
+        const hasSync = syncedEntries.length > 0;
+        const plainText = typeof payload?.lyrics === 'string' ? payload.lyrics : String(payload?.plainLyrics || '');
+        const lines = hasSync ? syncedEntries.map((entry) => entry.text) : plainText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+        if (!lines.length) return false;
+        const sourceLanguage = detectLanguage(lines.join('\n'));
+        if (!renderLyricsState(lines, sourceLanguage, hasSync ? syncedEntries : null, hasSync ? 'YouTube Music 原生同步歌詞' : 'YouTube Music 普通歌詞・平均時間暫排', false)) return false;
+        state.autoLyricsMeta = { trackName: meta.trackName, artistName: meta.artistName, albumName: meta.albumName || '', duration: meta.duration, score: 100, synced: hasSync, source: 'YouTube Music', lyricSource: payload.source || '' };
+        state.lyricsReady = true; state.lyricsLoading = false; setLyricsMatchStatus('✓ YouTube Music ' + (hasSync ? '原生動態歌詞' : '歌詞（平均時間）') + (payload.source ? '・' + payload.source : ''));
+        writeLyricsCache(videoId, { version: 2, lines, timing: state.timing, meta: state.autoLyricsMeta }); updatePipelineStatus('✓ 中文／韓文／日文空耳已同步生成');
+        return true;
+      }
       async function autoLoadLyrics(item) {
         const videoId = state.selectedVideoId; const meta = guessTrackMeta(item);
         const cached = readLyricsCache(videoId);
         if (cached && cached.lines.length) {
           const sourceLanguage = detectLanguage(cached.lines.join('\n')); renderLyricsState(cached.lines, sourceLanguage, cached.timing, cached.meta && cached.meta.synced ? '已快取同步歌詞・' + (cached.meta.score || '—') + '%' : '已快取歌詞', false);
-          state.autoLyricsMeta = cached.meta || null; state.lyricsReady = true; state.lyricsLoading = false; setLyricsMatchStatus('✓ 已從本機快取載入歌詞'); updatePipelineStatus('✓ 空耳已同步生成'); return;
+          state.autoLyricsMeta = cached.meta || null; state.lyricsReady = true; state.lyricsLoading = false; setLyricsMatchStatus('✓ 已從本機快取載入歌詞' + (cached.meta && cached.meta.source ? '（' + cached.meta.source + '）' : '')); updatePipelineStatus('✓ 空耳已同步生成'); return;
         }
         if (!meta.trackName || !meta.artistName) { state.lyricsLoading = false; setLyricsMatchStatus('無法從此連結推定歌名／歌手，請用「歌名＋歌手」搜尋。', true); updatePipelineStatus('請補上歌名與歌手', true); return; }
         try {
+          try {
+            const nativeLyrics = await fetchYouTubeMusicLyrics(videoId); if (state.selectedVideoId !== videoId) return;
+            if (applyYouTubeMusicLyrics(nativeLyrics, meta, videoId)) return;
+          } catch (nativeError) {
+            setLyricsMatchStatus('YT Music 原生歌詞未取得，改找備援同步歌詞……');
+          }
           const records = await fetchLrclibCandidates(meta); if (state.selectedVideoId !== videoId) return;
           const ranked = records.map((record) => ({ record, match: lyricMatch(record, item, meta) })).filter((entry) => entry.record && (entry.record.syncedLyrics || entry.record.plainLyrics)).sort((a, b) => b.match.score - a.match.score);
           const best = ranked[0];
