@@ -742,7 +742,7 @@
         return data;
       }
       function normalizeTimingEntries(entries, duration) {
-        const clean = entries.filter((entry) => Number.isFinite(entry.start) && String(entry.text || '').trim()).sort((a, b) => a.start - b.start);
+        const clean = entries.filter((entry) => Number.isFinite(entry.start) && String(entry.text || '').trim() && !isNonLyricMarker(entry.text)).sort((a, b) => a.start - b.start);
         return clean.map((entry, index) => {
           const next = clean[index + 1]; const fallbackEnd = next ? next.start : (Number(duration) > entry.start + .2 ? Number(duration) : entry.start + 5);
           return { start: entry.start, end: Math.max(entry.start + .2, Number.isFinite(entry.end) ? entry.end : fallbackEnd), text: String(entry.text || '').trim() };
@@ -758,8 +758,11 @@
       function writeLyricsCache(videoId, payload) {
         try { localStorage.setItem(lyricsCacheKey(videoId), JSON.stringify(payload)); } catch { /* storage is optional */ }
       }
+      function isNonLyricMarker(value) {
+        return /^(?:[♪♫♬🎵🎶\s]+|\[(?:music|instrumental|intro|outro|music only)[^\]]*\])$/i.test(String(value || '').trim());
+      }
       function renderLyricsState(textLines, sourceLanguage, timings, timingLabel, shouldStop) {
-        const cleanLines = textLines.map((line) => String(line || '').trim()).filter(Boolean);
+        const cleanLines = textLines.map((line) => String(line || '').trim()).filter((line) => line && !isNonLyricMarker(line));
         if (!cleanLines.length) return false;
         if (shouldStop) stopPlayback();
         state.lines = cleanLines.map((line) => buildLine(line, sourceLanguage));
@@ -1233,7 +1236,7 @@
       el('lyricsOutput').addEventListener('click', (event) => { if (event.target.closest('[contenteditable="true"]')) return; const card = event.target.closest('.line-card'); if (!card || !state.timing[Number(card.dataset.lineIndex)]) return; seekTo(state.timing[Number(card.dataset.lineIndex)].start + state.offset); });
       el('timeline').addEventListener('change', () => seekTo(Number(el('timeline').value)));
       document.addEventListener('keydown', (event) => { if (event.code === 'Space' && document.activeElement !== input && document.activeElement !== el('songSearch') && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA' && !event.repeat) { event.preventDefault(); el('markBtn').click(); } });
-      setSearchStatus('貼上 YouTube 連結可免 API Key；輸入歌曲名則需先設定 Key。');
+      setSearchStatus('YT Music 會先處理歌曲名搜尋；YouTube 連結或 videoId 也能直接使用。');
       input.addEventListener('input', () => { el('charCount').textContent = input.value.length + ' 字'; });
       el('generateBtn').addEventListener('click', generate);
       document.querySelectorAll('.sample').forEach((button) => button.addEventListener('click', () => { input.value = samples[button.dataset.sample]; el('charCount').textContent = input.value.length + ' 字'; document.querySelector('input[name="language"][value="auto"]').checked = true; state.language = 'auto'; generate(); }));

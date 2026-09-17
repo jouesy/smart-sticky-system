@@ -22,17 +22,29 @@ function ytmusicContext(mobile) {
 }
 
 async function ytmusicRequest(endpoint, body, mobile) {
-  const response = await fetch(YTMUSIC_API + '/' + endpoint, {
+  const clientName = mobile ? 'ANDROID_MUSIC' : 'WEB_REMIX';
+  const clientVersion = mobile ? '7.21.50' : currentClientVersion();
+  const response = await fetch(YTMUSIC_API + '/' + endpoint + '?prettyPrint=false', {
     method: 'POST',
     headers: {
       Accept: 'application/json',
       'Content-Type': 'application/json',
-      Origin: YTMUSIC_ORIGIN
+      'Accept-Language': 'zh-TW,zh;q=0.9,en;q=0.8',
+      Referer: YTMUSIC_ORIGIN + '/',
+      Origin: YTMUSIC_ORIGIN,
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      'X-YouTube-Client-Name': mobile ? '21' : '67',
+      'X-YouTube-Client-Version': clientVersion
     },
     body: JSON.stringify({ ...body, ...ytmusicContext(Boolean(mobile)) })
   });
-  const data = await response.json().catch(() => null);
-  if (!response.ok) throw new Error('YouTube Music 回應 ' + response.status);
+  const responseText = await response.text();
+  if (!response.ok) {
+    const detail = responseText.replace(/\s+/g, ' ').trim().slice(0, 180);
+    console.error('YT Music upstream response', { endpoint, status: response.status, detail });
+    throw new Error('YouTube Music 回應 ' + response.status);
+  }
+  const data = (() => { try { return JSON.parse(responseText); } catch { return null; } })();
   if (!data || typeof data !== 'object') throw new Error('YouTube Music 回傳格式無效');
   return data;
 }
