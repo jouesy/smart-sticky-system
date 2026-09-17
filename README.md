@@ -15,9 +15,9 @@
 
 ## 空耳房 v2.0
 
-`dist/index.html` 是韓・中・日三語同步動態歌詞播放器，支援歌詞空耳、YouTube 歌源、LRC／SRT／VTT 時間碼、手動打點、整首偏移、逐句跳轉與 Karaoke Highlight。
+`dist/index.html` 是韓・中・日三語同步動態歌詞播放器，支援歌詞空耳、YouTube 歌源、自動尋找 LRCLIB 同步歌詞、共用時間軸、逐句跳轉與 Karaoke Highlight。成功載入過的歌詞會依 videoId 快取在瀏覽器本機；LRC／SRT／VTT 匯入、手動打點與整首偏移則保留為版本不一致時的備援。
 
-YouTube 歌名搜尋需要在頁面內自行設定 YouTube Data API Key；Key 只會保存在瀏覽器本機，不應寫入原始碼或提交到 Git。沒有 Key 時仍可直接貼 YouTube URL 或 videoId。
+YouTube 歌名搜尋需要在頁面內自行設定 YouTube Data API Key；Key 只會保存在瀏覽器本機，不應寫入原始碼或提交到 Git。沒有 Key 時仍可直接貼 YouTube URL 或 videoId；LRCLIB 歌詞查詢不需要另一把 Key。系統會用歌名、歌手、版本關鍵字與播放長度計算匹配度，長度差異過大時不會自動套用歌詞。
 
 ## 注意事項
 

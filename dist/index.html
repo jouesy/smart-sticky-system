@@ -293,6 +293,7 @@
     .selected-source { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 12px; padding: 9px 11px; background: rgba(123,240,207,.08); border: 1px solid rgba(123,240,207,.24); border-radius: 10px; }
     .selected-source strong { display: block; color: var(--mint); font-size: .75rem; }
     .selected-source span { display: block; overflow: hidden; max-width: 390px; margin-top: 2px; color: var(--muted); font-size: .68rem; text-overflow: ellipsis; white-space: nowrap; }
+    .selected-source small { display: block; margin-top: 5px; color: var(--subtle); font-size: .64rem; }
     .open-music { flex: 0 0 auto; color: var(--muted); border: 0; background: transparent; cursor: pointer; font-size: .7rem; }
     .open-music:hover { color: var(--text); }
     .video-stage { display: none; grid-template-columns: minmax(0, 1.35fr) minmax(230px, .65fr); gap: 13px; margin-top: 14px; }
@@ -458,7 +459,7 @@
           <p class="console-note">沒有 API Key 也能直接貼 YouTube 連結或 videoId；Key 只保存在這台裝置。</p>
           <div class="search-status" id="searchStatus" role="status"></div>
           <div class="search-results" id="searchResults" hidden></div>
-          <div class="selected-source" id="selectedSource" hidden><div><strong>目前歌源</strong><span id="selectedSourceTitle"></span></div><button class="open-music" id="openMusicBtn" type="button">在 YouTube Music 開啟 ↗</button></div>
+          <div class="selected-source" id="selectedSource" hidden><div><strong>目前歌源</strong><span id="selectedSourceTitle"></span><small id="lyricsMatchStatus">選歌後自動尋找同步歌詞</small></div><button class="open-music" id="openMusicBtn" type="button">在 YouTube Music 開啟 ↗</button></div>
           <div class="video-stage" id="videoStage">
             <div class="youtube-frame"><div class="video-placeholder" id="youtubePlaceholder">選擇上方歌源後載入 YouTube 播放器</div><div id="youtubePlayer" hidden></div></div>
             <div class="timing-panel">
@@ -528,7 +529,7 @@
       };
       const flags = { zh: '🇹🇼', ko: '🇰🇷', ja: '🇯🇵' };
       const names = { zh: '中文', ko: '韓文', ja: '日文' };
-      const state = { language: 'auto', mode: 'precision', candidate: 0, view: 'lines', speed: 1, isPlaying: false, isEditing: false, lines: [], timing: [], offset: 0, markIndex: 0, focus: 'all', playerMode: 'normal', activeLine: -1 };
+      const state = { language: 'auto', mode: 'precision', candidate: 0, view: 'lines', speed: 1, isPlaying: false, isEditing: false, lines: [], timing: [], offset: 0, markIndex: 0, focus: 'all', playerMode: 'normal', activeLine: -1, selectedVideoId: '', selectedVideoTitle: '', selectedVideoDuration: 0, selectedSourceItem: null, playerReady: false, playerFallback: false, lyricsLoading: false, lyricsReady: false, autoLyricsMeta: null };
       let playTimer = null;
       let youtubePlayer = null;
       let youtubeApiPromise = null;
@@ -556,7 +557,7 @@
       }
       function sourceBadge(item) {
         const text = ((item.snippet && item.snippet.title) || '') + ' ' + ((item.snippet && item.snippet.channelTitle) || '');
-        if (/official\s*(audio|audio)/i.test(text)) return 'Official Audio';
+        if (/official\s*audio/i.test(text)) return 'Official Audio';
         if (/official\s*(mv|video)|music video/i.test(text)) return 'Official MV';
         if (/topic/i.test(text)) return 'Topic 官方音源';
         return 'YouTube 影片';
@@ -579,7 +580,7 @@
         if (!query) { setSearchStatus('輸入歌曲名、歌手，或直接貼 YouTube 連結。'); el('songSearch').focus(); return; }
         const directId = extractVideoId(query);
         if (directId) {
-          const direct = { id: { videoId: directId }, snippet: { title: '已貼上的 YouTube 歌源', channelTitle: 'videoId ' + directId, thumbnails: { medium: { url: 'https://i.ytimg.com/vi/' + directId + '/mqdefault.jpg' } } } };
+          const direct = { id: { videoId: directId }, query, snippet: { title: '已貼上的 YouTube 歌源', channelTitle: 'videoId ' + directId, thumbnails: { medium: { url: 'https://i.ytimg.com/vi/' + directId + '/mqdefault.jpg' } } } };
           renderSearchResults([direct]); setSearchStatus('已辨識 YouTube 連結，可以選擇歌源。'); return;
         }
         const key = getApiKey();
@@ -595,35 +596,185 @@
           const ids = items.map((item) => item.id.videoId).join(',');
           const detailResponse = await fetch('https://www.googleapis.com/youtube/v3/videos?part=contentDetails&id=' + encodeURIComponent(ids) + '&key=' + encodeURIComponent(key));
           const detailData = await detailResponse.json(); const details = Object.fromEntries((detailData.items || []).map((item) => [item.id, parseDuration(item.contentDetails && item.contentDetails.duration)]));
-          items.forEach((item) => { item.duration = details[item.id.videoId] || 0; }); renderSearchResults(items); setSearchStatus('找到 ' + items.length + ' 個歌源，請選擇最適合歌詞時間軸的版本。');
+          items.forEach((item) => { item.duration = details[item.id.videoId] || 0; item.query = query; }); renderSearchResults(items); setSearchStatus('找到 ' + items.length + ' 個歌源，請選擇最適合歌詞時間軸的版本。');
         } catch (error) { setSearchStatus('搜尋失敗：' + error.message, true); }
       }
       function loadYouTubeApi() {
         if (window.YT && window.YT.Player) return Promise.resolve();
         if (youtubeApiPromise) return youtubeApiPromise;
         youtubeApiPromise = new Promise((resolve, reject) => {
+          let settled = false; const deadline = Date.now() + 10000;
+          const finish = (error) => { if (settled) return; settled = true; error ? reject(error) : resolve(); };
+          const check = () => { if (window.YT && window.YT.Player) { finish(); return; } if (Date.now() >= deadline) { finish(new Error('YouTube Player API 載入逾時')); return; } setTimeout(check, 120); };
           const previous = window.onYouTubeIframeAPIReady;
-          window.onYouTubeIframeAPIReady = () => { if (typeof previous === 'function') previous(); resolve(); };
-          const script = document.createElement('script'); script.src = 'https://www.youtube.com/iframe_api'; script.async = true; script.onerror = () => reject(new Error('YouTube Player API 載入失敗')); document.head.appendChild(script);
+          window.onYouTubeIframeAPIReady = () => { if (typeof previous === 'function') previous(); check(); };
+          const script = document.createElement('script'); script.src = 'https://www.youtube.com/iframe_api'; script.async = true; script.onload = check; script.onerror = () => finish(new Error('YouTube Player API 載入失敗')); document.head.appendChild(script); check();
         });
         return youtubeApiPromise;
+      }
+      function updatePipelineStatus(extra, isError) {
+        const parts = [];
+        if (state.playerReady) parts.push('✓ 音源載入完成');
+        else if (state.playerFallback) parts.push('⚠ 相容播放器已載入');
+        else if (state.selectedVideoId) parts.push('正在載入音源……');
+        if (state.lyricsReady) parts.push('✓ 歌詞已載入');
+        else if (state.lyricsLoading) parts.push('正在尋找同步歌詞……');
+        if (extra) parts.push(extra);
+        setSearchStatus(parts.join(' · ') || '');
+        if (isError) el('searchStatus').classList.add('is-error');
+      }
+      function setLyricsMatchStatus(message, isError) {
+        const node = el('lyricsMatchStatus'); node.textContent = message; node.classList.toggle('is-error', Boolean(isError));
+      }
+      function renderYouTubeFallback(videoId, message) {
+        const host = el('youtubePlayer');
+        const origin = /^https?:/.test(location.origin) ? '&origin=' + encodeURIComponent(location.origin) : '';
+        host.innerHTML = '<iframe title="YouTube 播放器" src="https://www.youtube.com/embed/' + encodeURIComponent(videoId) + '?playsinline=1&rel=0&modestbranding=1&enablejsapi=1' + origin + '" allow="autoplay; encrypted-media; picture-in-picture" allowfullscreen></iframe>';
+        host.hidden = false; el('youtubePlaceholder').hidden = true; state.playerFallback = true;
+        updatePipelineStatus(message || '播放器以相容模式載入；目前無法讀取播放秒數', true);
       }
       async function mountYouTube(videoId) {
         el('videoStage').classList.add('is-visible'); el('youtubePlaceholder').hidden = true; el('youtubePlayer').hidden = false;
         if (youtubePlayer && youtubePlayer.destroy) youtubePlayer.destroy();
-        setSearchStatus('正在載入 YouTube 播放器……');
+        youtubePlayer = null; clearInterval(youtubeSyncTimer); state.playerReady = false; state.playerFallback = false; el('youtubePlayer').innerHTML = ''; updatePipelineStatus();
         try {
           await loadYouTubeApi();
-          youtubePlayer = new YT.Player('youtubePlayer', { videoId, playerVars: { playsinline: 1, rel: 0, modestbranding: 1 }, events: {
-            onReady: (event) => { const duration = event.target.getDuration() || state.lines.length * 7; el('timeline').max = String(Math.max(1, duration)); el('totalTime').textContent = formatTime(duration); setSearchStatus('YouTube 播放器已就緒；點擊句子可跳轉。'); startYouTubeSync(); },
+          youtubePlayer = new YT.Player('youtubePlayer', { videoId, playerVars: { playsinline: 1, rel: 0, modestbranding: 1, enablejsapi: 1, origin: location.origin }, events: {
+            onReady: (event) => { state.playerReady = true; const duration = event.target.getDuration() || state.selectedVideoDuration || state.lines.length * 7; el('timeline').max = String(Math.max(1, duration)); el('totalTime').textContent = formatTime(duration); updatePipelineStatus('點擊句子可跳轉'); startYouTubeSync(); },
+            onError: (event) => { renderYouTubeFallback(videoId, '播放器錯誤碼 ' + event.data + '；已切換相容模式'); },
             onStateChange: (event) => { if (window.YT && event.data === YT.PlayerState.PLAYING) { state.isPlaying = true; el('playBtn').textContent = 'Ⅱ'; el('playLabel').textContent = '播放中'; startYouTubeSync(); } else if (window.YT && (event.data === YT.PlayerState.PAUSED || event.data === YT.PlayerState.ENDED)) { state.isPlaying = false; el('playBtn').textContent = '▶'; el('playLabel').textContent = '逐句播放'; } }
           } });
-        } catch (error) { setSearchStatus(error.message + '，仍可使用下方本機時間軸。', true); el('youtubePlaceholder').hidden = false; el('youtubePlaceholder').textContent = '播放器暫時無法載入，請檢查網路或改用本機時間軸'; el('youtubePlayer').hidden = true; }
+        } catch (error) { renderYouTubeFallback(videoId, error.message + '；已切換相容模式'); }
       }
       function chooseSource(item) {
         const videoId = item && item.id && (item.id.videoId || item.id); if (!videoId) return;
-        state.selectedVideoId = videoId; state.selectedVideoTitle = (item.snippet && item.snippet.title) || 'YouTube 歌源';
-        el('selectedSource').hidden = false; el('selectedSourceTitle').textContent = state.selectedVideoTitle; mountYouTube(videoId);
+        stopPlayback();
+        state.selectedVideoId = videoId; state.selectedVideoTitle = (item.snippet && item.snippet.title) || 'YouTube 歌源'; state.selectedVideoDuration = Number(item.duration) || 0; state.selectedSourceItem = item; state.playerReady = false; state.playerFallback = false; state.lyricsLoading = true; state.lyricsReady = false; state.autoLyricsMeta = null;
+        el('selectedSource').hidden = false; el('selectedSourceTitle').textContent = state.selectedVideoTitle; setLyricsMatchStatus('正在自動尋找同步歌詞……'); updatePipelineStatus(); mountYouTube(videoId); autoLoadLyrics(item);
+      }
+      function normalizeComparable(value) {
+        return String(value || '').toLowerCase().normalize('NFKC').replace(/official|audio|video|music|lyrics|visualizer|mv/g, ' ').replace(/[^\w\u00c0-\uffff]+/gi, ' ').replace(/\s+/g, ' ').trim();
+      }
+      function cleanTrackTitle(value) {
+        const raw = String(value || '').trim();
+        const quoted = raw.match(/'([^']+)'|"([^"]+)"|「([^」]+)」|『([^』]+)』/);
+        let title = quoted ? (quoted[1] || quoted[2] || quoted[3] || quoted[4]) : raw;
+        const parts = title.split(/\s+[|–—-]\s+/);
+        if (parts.length > 1) title = parts[parts.length - 1];
+        return title.replace(/\[[^\]]*\]|\([^)]*(?:official|audio|video|music|lyrics|visualizer|mv|remix|live|acoustic)[^)]*\)/gi, ' ').replace(/\b(?:official|audio|video|music video|lyrics|visualizer|mv)\b/gi, ' ').replace(/\s+/g, ' ').trim();
+      }
+      function guessTrackMeta(item) {
+        const snippet = item && item.snippet ? item.snippet : {};
+        const query = String((item && item.query) || el('songSearch').value || '').trim();
+        const queryWithoutVideo = query.replace(/https?:\/\/\S+/gi, '').trim();
+        let trackName = cleanTrackTitle(snippet.title);
+        let artistName = String(snippet.channelTitle || '').replace(/\s+-\s+Topic$/i, '').trim();
+        if (!trackName || /^已貼上的 YouTube 歌源$/i.test(trackName)) {
+          const queryParts = queryWithoutVideo.split(/\s+[|–—-]\s+/);
+          if (queryParts.length > 1) { artistName = artistName && !/^videoId\s/i.test(artistName) ? artistName : queryParts[0].trim(); trackName = queryParts.slice(1).join(' - ').trim(); }
+          else { const words = queryWithoutVideo.split(/\s+/).filter(Boolean); artistName = artistName && !/^videoId\s/i.test(artistName) ? artistName : words.shift() || ''; trackName = words.join(' '); }
+        }
+        if (/^videoId\s/i.test(artistName) || /^YouTube$/i.test(artistName)) artistName = '';
+        return { trackName, artistName, albumName: '', duration: Number(item && item.duration) || 0 };
+      }
+      function textSimilarity(left, right) {
+        const a = normalizeComparable(left); const b = normalizeComparable(right);
+        if (!a || !b) return 0.5;
+        if (a === b) return 1;
+        if (a.includes(b) || b.includes(a)) return 0.86;
+        const aa = new Set(a.split(' ')); const bb = new Set(b.split(' ')); const common = [...aa].filter((token) => bb.has(token)).length;
+        return common ? (2 * common) / (aa.size + bb.size) : 0;
+      }
+      function versionSimilarity(item, record) {
+        const videoText = ((item && item.snippet && item.snippet.title) || '') + ' ' + ((item && item.snippet && item.snippet.description) || '');
+        const lyricText = ((record && record.trackName) || '') + ' ' + ((record && record.albumName) || '');
+        const special = /(live|remix|acoustic|instrumental|sped up|slowed|karaoke|cover|concert|demo)/i;
+        if (!special.test(videoText)) return 1;
+        return special.test(lyricText) ? 0.85 : 0.2;
+      }
+      function lyricMatch(record, item, meta) {
+        const lyricTitle = record && (record.trackName || record.name);
+        const titleScore = textSimilarity(meta.trackName, lyricTitle);
+        const artistScore = textSimilarity(meta.artistName, record && record.artistName);
+        const videoDuration = Number(item && item.duration) || 0; const lyricDuration = Number(record && record.duration) || 0; const diff = videoDuration && lyricDuration ? Math.abs(videoDuration - lyricDuration) : 0;
+        const durationScore = !videoDuration || !lyricDuration ? 0.5 : diff <= 2 ? 1 : diff <= 5 ? 0.8 : diff <= 10 ? 0.45 : 0;
+        const versionScore = versionSimilarity(item, record);
+        return { score: Math.round((titleScore * .4 + artistScore * .3 + durationScore * .2 + versionScore * .1) * 100), diff, titleScore, artistScore, durationScore, versionScore };
+      }
+      async function fetchLrclibCandidates(meta) {
+        const getParams = new URLSearchParams({ track_name: meta.trackName, artist_name: meta.artistName });
+        if (meta.albumName) getParams.set('album_name', meta.albumName);
+        if (meta.duration > 0) getParams.set('duration', String(Math.round(meta.duration)));
+        const getResponse = await fetch('https://lrclib.net/api/get?' + getParams.toString(), { headers: { Accept: 'application/json' } });
+        if (getResponse.ok) { const record = await getResponse.json(); return record ? [record] : []; }
+        const searchParams = new URLSearchParams({ q: meta.trackName + ' ' + meta.artistName });
+        const searchResponse = await fetch('https://lrclib.net/api/search?' + searchParams.toString(), { headers: { Accept: 'application/json' } });
+        if (!searchResponse.ok) throw new Error('同步歌詞服務暫時無法回應');
+        const data = await searchResponse.json(); return Array.isArray(data) ? data : [];
+      }
+      function normalizeTimingEntries(entries, duration) {
+        const clean = entries.filter((entry) => Number.isFinite(entry.start) && String(entry.text || '').trim()).sort((a, b) => a.start - b.start);
+        return clean.map((entry, index) => {
+          const next = clean[index + 1]; const fallbackEnd = next ? next.start : (Number(duration) > entry.start + .2 ? Number(duration) : entry.start + 5);
+          return { start: entry.start, end: Math.max(entry.start + .2, Number.isFinite(entry.end) ? entry.end : fallbackEnd), text: String(entry.text || '').trim() };
+        });
+      }
+      function lyricsCacheKey(videoId) { return 'karaoke-ear:lyrics-cache:' + videoId; }
+      function readLyricsCache(videoId) {
+        try {
+          const value = JSON.parse(localStorage.getItem(lyricsCacheKey(videoId)) || 'null');
+          return value && Array.isArray(value.lines) && Array.isArray(value.timing) ? value : null;
+        } catch { return null; }
+      }
+      function writeLyricsCache(videoId, payload) {
+        try { localStorage.setItem(lyricsCacheKey(videoId), JSON.stringify(payload)); } catch { /* storage is optional */ }
+      }
+      function renderLyricsState(textLines, sourceLanguage, timings, timingLabel, shouldStop) {
+        const cleanLines = textLines.map((line) => String(line || '').trim()).filter(Boolean);
+        if (!cleanLines.length) return false;
+        if (shouldStop) stopPlayback();
+        state.lines = cleanLines.map((line) => buildLine(line, sourceLanguage));
+        const averageTiming = state.lines.map((_, index) => ({ start: index * 7, end: (index + 1) * 7 }));
+        const suppliedTiming = Array.isArray(timings) && timings.length ? timings : averageTiming;
+        state.timing = state.lines.map((_, index) => suppliedTiming[index] || averageTiming[index]);
+        state.offset = 0; state.markIndex = 0; state.activeLine = -1;
+        el('lyricsInput').value = cleanLines.join('\n'); el('charCount').textContent = el('lyricsInput').value.length + ' 字';
+        el('emptyState').classList.remove('is-visible'); el('emptyState').hidden = true; el('lyricsOutput').hidden = false; el('player').hidden = false; el('candidateBar').hidden = false; el('focusBar').hidden = false;
+        el('resultHeading').textContent = flags[sourceLanguage] + ' ' + names[sourceLanguage] + '歌詞空耳'; el('resultSubheading').textContent = state.lines.length + ' 句・已保留原音並拆成逐音節提示';
+        el('lyricsOutput').innerHTML = state.lines.map((line, index) => lineHTML(line, sourceLanguage, index + 1)).join(''); el('alignmentOutput').innerHTML = allAlignmentHTML(state.lines, sourceLanguage); el('alignmentMeta').textContent = '共 ' + state.lines.flat().filter((token) => !/^\s+$/.test(token.source)).length + ' 個音節';
+        const timingEnd = state.timing.length ? state.timing[state.timing.length - 1].end : 0; const duration = Math.max(1, Number(state.selectedVideoDuration) || 0, timingEnd, state.lines.length * 7); el('timeline').max = String(duration); el('timeline').value = '0'; el('totalTime').textContent = formatTime(duration); el('currentTime').textContent = '0:00';
+        el('timingSourceLabel').textContent = timingLabel || '暫用平均時間'; el('offsetValue').textContent = '+0.0s'; renderTimingList(); linkSyllables(el('lyricsOutput')); linkSyllables(el('alignmentView')); updateEditUI();
+        return true;
+      }
+      function applyAutomaticLyrics(record, match, meta, videoId) {
+        const syncedEntries = normalizeTimingEntries(parseTimingText(record && record.syncedLyrics || ''), state.selectedVideoDuration || record && record.duration || 0);
+        const hasSync = syncedEntries.length > 0;
+        const lines = hasSync ? syncedEntries.map((entry) => entry.text) : String(record && record.plainLyrics || '').split(/\r?\n/).filter(Boolean);
+        if (!lines.length) return false;
+        const sourceLanguage = detectLanguage(lines.join('\n'));
+        const timings = hasSync ? syncedEntries : null;
+        const timingLabel = hasSync ? 'LRCLIB 同步歌詞・匹配 ' + match.score + '%' : 'LRCLIB 普通歌詞・平均時間暫排';
+        if (!renderLyricsState(lines, sourceLanguage, timings, timingLabel, false)) return false;
+        state.autoLyricsMeta = { trackName: record.trackName || meta.trackName, artistName: record.artistName || meta.artistName, albumName: record.albumName || '', duration: Number(record.duration) || meta.duration, score: match.score, synced: hasSync, source: 'LRCLIB' };
+        state.lyricsReady = true; state.lyricsLoading = false; setLyricsMatchStatus((hasSync ? '✓ LRCLIB 同步歌詞' : '✓ LRCLIB 歌詞（平均時間）') + '・匹配 ' + match.score + '%');
+        writeLyricsCache(videoId, { version: 1, lines, timing: state.timing, meta: state.autoLyricsMeta }); updatePipelineStatus('✓ 中文／韓文／日文空耳已同步生成');
+        return true;
+      }
+      async function autoLoadLyrics(item) {
+        const videoId = state.selectedVideoId; const meta = guessTrackMeta(item);
+        const cached = readLyricsCache(videoId);
+        if (cached && cached.lines.length) {
+          const sourceLanguage = detectLanguage(cached.lines.join('\n')); renderLyricsState(cached.lines, sourceLanguage, cached.timing, cached.meta && cached.meta.synced ? '已快取同步歌詞・' + (cached.meta.score || '—') + '%' : '已快取歌詞', false);
+          state.autoLyricsMeta = cached.meta || null; state.lyricsReady = true; state.lyricsLoading = false; setLyricsMatchStatus('✓ 已從本機快取載入歌詞'); updatePipelineStatus('✓ 空耳已同步生成'); return;
+        }
+        if (!meta.trackName || !meta.artistName) { state.lyricsLoading = false; setLyricsMatchStatus('無法從此連結推定歌名／歌手，請用「歌名＋歌手」搜尋。', true); updatePipelineStatus('請補上歌名與歌手', true); return; }
+        try {
+          const records = await fetchLrclibCandidates(meta); if (state.selectedVideoId !== videoId) return;
+          const ranked = records.map((record) => ({ record, match: lyricMatch(record, item, meta) })).filter((entry) => entry.record && (entry.record.syncedLyrics || entry.record.plainLyrics)).sort((a, b) => b.match.score - a.match.score);
+          const best = ranked[0];
+          if (!best || best.match.score < 76 || (meta.duration > 0 && best.record.duration > 0 && best.match.diff > 10)) { state.lyricsLoading = false; const hint = best ? '最佳匹配 ' + best.match.score + '%，版本或長度差異過大' : '找不到相符紀錄'; setLyricsMatchStatus('⚠ ' + hint + '（辨識為「' + meta.artistName + ' — ' + meta.trackName + '」）；保留手動歌詞／時間軸備援。', true); updatePipelineStatus('尚無可安全套用的同步歌詞', true); return; }
+          if (!applyAutomaticLyrics(best.record, best.match, meta, videoId)) throw new Error('歌詞內容沒有可用文字');
+        } catch (error) { state.lyricsLoading = false; setLyricsMatchStatus('⚠ 同步歌詞暫時取得失敗；可稍後重試或使用手動備援。', true); updatePipelineStatus(error.message, true); }
       }
       function startYouTubeSync() {
         clearInterval(youtubeSyncTimer); youtubeSyncTimer = setInterval(() => { if (youtubePlayer && youtubePlayer.getCurrentTime) syncLyrics(youtubePlayer.getCurrentTime()); }, 180);
@@ -633,8 +784,8 @@
         if (!match) return NaN; return Number(match[1] || 0) * 3600 + Number(match[2]) * 60 + Number(match[3]) + Number('0.' + String(match[4] || '0').padEnd(3, '0'));
       }
       function parseTimingText(text) {
-        const entries = []; const lrc = /\[(\d{1,2}:\d{2}(?:\.\d{1,3})?)\]([^\r\n]*)/g; let match;
-        while ((match = lrc.exec(text))) entries.push({ start: parseTimestamp(match[1]), text: match[2].trim() });
+        const entries = []; const lrcLine = /^((?:\[\d{1,2}:\d{2}(?:\.\d{1,3})?\])+)([^\r\n]*)$/gm; let match;
+        while ((match = lrcLine.exec(text))) { const tags = match[1].match(/\[(\d{1,2}:\d{2}(?:\.\d{1,3})?)\]/g) || []; tags.forEach((tag) => entries.push({ start: parseTimestamp(tag.slice(1, -1)), text: match[2].trim() })); }
         if (entries.length) return entries.filter((entry) => Number.isFinite(entry.start));
         const blockPattern = /(\d{1,2}:\d{2}:\d{2}[,.]\d{3})\s*-->\s*(\d{1,2}:\d{2}:\d{2}[,.]\d{3})\s*\r?\n([\s\S]*?)(?=\r?\n\s*\r?\n|$)/g;
         while ((match = blockPattern.exec(text))) entries.push({ start: parseTimestamp(match[1]), end: parseTimestamp(match[2]), text: match[3].replace(/\r?\n/g, ' ').trim() });
@@ -858,29 +1009,8 @@
       function generate() {
         const raw = input.value.trim();
         if (!raw) { showToast('先貼上一小句歌詞吧'); input.focus(); return; }
-        stopPlayback();
-        const sourceLanguage = currentSource();
-        state.lines = raw.split(/\r?\n/).filter((line) => line.trim()).map((line) => buildLine(line, sourceLanguage));
-        const lineCount = state.lines.length;
-        state.timing = state.lines.map((_, index) => ({ start: index * 7, end: (index + 1) * 7 })); state.offset = 0; state.markIndex = 0; state.activeLine = -1;
-        el('emptyState').classList.remove('is-visible');
-        el('emptyState').hidden = true;
-        el('lyricsOutput').hidden = false;
-        el('player').hidden = false;
-        el('candidateBar').hidden = false;
-        el('focusBar').hidden = false;
-        el('resultHeading').textContent = flags[sourceLanguage] + ' ' + names[sourceLanguage] + '歌詞空耳';
-        el('resultSubheading').textContent = lineCount + ' 句・已保留原音並拆成逐音節提示';
-        el('lyricsOutput').innerHTML = state.lines.map((line, index) => lineHTML(line, sourceLanguage, index + 1)).join('');
-        el('alignmentOutput').innerHTML = allAlignmentHTML(state.lines, sourceLanguage);
-        el('alignmentMeta').textContent = '共 ' + state.lines.flat().filter((token) => !/^\s+$/.test(token.source)).length + ' 個音節';
-        el('timeline').max = String(Math.max(1, lineCount * 7));
-        el('timeline').value = '0';
-        el('totalTime').textContent = formatTime(lineCount * 7);
-        el('currentTime').textContent = '0:00';
-        el('timingSourceLabel').textContent = '暫用平均時間'; el('offsetValue').textContent = '+0.0s'; renderTimingList();
-        linkSyllables(el('lyricsOutput')); linkSyllables(el('alignmentView'));
-        updateEditUI();
+        state.lyricsReady = false; state.lyricsLoading = false; state.autoLyricsMeta = null;
+        renderLyricsState(raw.split(/\r?\n/), currentSource(), null, '暫用平均時間', true);
         window.scrollTo({ top: 0, behavior: 'smooth' });
       }
       function setView(view) {
@@ -923,6 +1053,7 @@
         if (!state.lines.length) return;
         if (state.isPlaying) { if (youtubePlayer && youtubePlayer.pauseVideo) youtubePlayer.pauseVideo(); stopPlayback(); return; }
         if (youtubePlayer && youtubePlayer.playVideo) { youtubePlayer.playVideo(); state.isPlaying = true; el('playBtn').textContent = 'Ⅱ'; el('playLabel').textContent = '播放中'; return; }
+        if (state.playerFallback) { showToast('請直接使用 YouTube 播放器控制列播放；相容模式無法讀取播放秒數'); return; }
         if (!window.speechSynthesis) { showToast('此瀏覽器不支援語音播放'); return; }
         state.isPlaying = true; el('playBtn').textContent = 'Ⅱ'; el('playLabel').textContent = '播放中';
         const lang = currentSource() === 'ko' ? 'ko-KR' : currentSource() === 'ja' ? 'ja-JP' : 'zh-TW';
