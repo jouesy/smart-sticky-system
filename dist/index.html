@@ -888,7 +888,7 @@
         activeLearnToken = token; activeLearnLanguage = node.dataset.target || currentSource(); el('learnPanel').classList.add('is-visible'); el('learnWord').textContent = token.source; el('learnDetails').innerHTML = '<span>韓文：<b>' + escapeHTML(token.ko) + '</b></span><span>中文空耳：<b>' + escapeHTML(token.zh) + '</b></span><span>注音：<b>' + escapeHTML(token.bopomofo || '—') + '</b></span><span>日文空耳：<b>' + escapeHTML(token.ja) + '</b></span>';
       }
       function setFocus(value) { state.focus = value; el('lyricsOutput').className = 'lyrics-output focus-' + value; document.querySelectorAll('.focus-button').forEach((button) => button.classList.toggle('is-active', button.dataset.focus === value)); }
-      function setPlayerMode(value) { state.playerMode = value; document.querySelector('.workspace').classList.toggle('is-karaoke', value === 'karaoke'); document.querySelectorAll('[data-player-mode]').forEach((button) => button.classList.toggle('is-active', button.dataset.playerMode === value)); }
+      function setPlayerMode(value) { state.playerMode = value; document.querySelector('.workspace').classList.toggle('is-karaoke', value === 'karaoke'); document.querySelectorAll('[data-player-mode]').forEach((button) => button.classList.toggle('is-active', button.dataset.playerMode === value)); if (state.timing.length) syncLyrics(getPlaybackTime()); }
 
       // These compact phrase maps keep the demo deterministic and work offline.
       const zhMap = {
@@ -1123,7 +1123,7 @@
         'ハ': ['하', '哈'], 'ヒ': ['히', '希'], 'フ': ['후', '呼'], 'ヘ': ['헤', '嘿'], 'ホ': ['호', '齁'],
         'マ': ['마', '媽'], 'ミ': ['미', '咪'], 'ム': ['무', '姆'], 'メ': ['메', '美'], 'モ': ['모', '摸'],
         'ヤ': ['야', '呀'], 'ユ': ['유', '優'], 'ヨ': ['요', '唷'], 'ラ': ['라', '拉'], 'リ': ['리', '里'], 'ル': ['루', '魯'], 'レ': ['레', '勒'], 'ロ': ['로', '羅'],
-        'ワ': ['와', '哇'], 'ヲ': ['오', '喔'], 'ン': ['ㄴ', '恩'],
+        'ワ': ['와', '哇'], 'ヲ': ['오', '喔'], 'ン': ['은', '恩'],
         'ガ': ['가', '嘎'], 'ギ': ['기', '基'], 'グ': ['구', '咕'], 'ゲ': ['게', '給'], 'ゴ': ['고', '哥'],
         'ザ': ['자', '雜'], 'ジ': ['지', '基'], 'ズ': ['즈', '祖'], 'ゼ': ['제', '介'], 'ゾ': ['조', '啾'],
         'ダ': ['다', '達'], 'ヂ': ['지', '基'], 'ヅ': ['즈', '祖'], 'デ': ['데', '得'], 'ド': ['도', '都'],
