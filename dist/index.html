@@ -320,7 +320,7 @@
     .player-mode { display: flex; gap: 4px; margin-left: auto; }
     .player-mode button { min-height: 27px; padding: 0 8px; color: var(--muted); border: 0; border-radius: 7px; background: transparent; cursor: pointer; font-size: .67rem; }
     .player-mode button.is-active { color: var(--bg-deep); background: var(--mint); font-weight: 800; }
-    .line-card { cursor: pointer; transition: background .2s, border-color .2s; }
+    .line-card { cursor: pointer; scroll-margin-block: 28vh; transition: background .2s, border-color .2s; }
     .line-card:hover { padding-left: 10px; padding-right: 10px; margin-left: -10px; margin-right: -10px; background: rgba(255,255,255,.025); border-radius: 12px; }
     .line-card.is-live { background: rgba(123,240,207,.05); border-color: rgba(123,240,207,.26); }
     .line-card.is-live .line-index { color: var(--mint); }
@@ -515,6 +515,7 @@
   </main>
   <div class="toast" id="toast" role="status"></div>
 
+  <script src="https://unpkg.com/pinyin-pro@3.29.4/dist/index.js"></script>
   <script>
     (() => {
       const samples = {
@@ -530,7 +531,7 @@
       const flags = { zh: '🇹🇼', ko: '🇰🇷', ja: '🇯🇵' };
       const names = { zh: '中文', ko: '韓文', ja: '日文' };
       const YTMUSIC_API_BASE = '/api/ytmusic';
-      const state = { language: 'auto', mode: 'precision', candidate: 0, view: 'lines', speed: 1, isPlaying: false, isEditing: false, lines: [], timing: [], offset: 0, markIndex: 0, focus: 'all', playerMode: 'normal', activeLine: -1, selectedVideoId: '', selectedVideoTitle: '', selectedVideoDuration: 0, selectedSourceItem: null, playerReady: false, playerFallback: false, lyricsLoading: false, lyricsReady: false, autoLyricsMeta: null };
+      const state = { language: 'auto', mode: 'precision', candidate: 0, view: 'lines', speed: 1, isPlaying: false, isEditing: false, lines: [], timing: [], offset: 0, markIndex: 0, focus: 'all', playerMode: 'normal', karaokeLead: .12, activeLine: -1, selectedVideoId: '', selectedVideoTitle: '', selectedVideoDuration: 0, selectedSourceItem: null, playerReady: false, playerFallback: false, lyricsLoading: false, lyricsReady: false, autoLyricsMeta: null };
       let playTimer = null;
       let youtubePlayer = null;
       let youtubeApiPromise = null;
@@ -663,7 +664,7 @@
           youtubePlayer = new YT.Player('youtubePlayer', { videoId, playerVars: { playsinline: 1, rel: 0, modestbranding: 1, enablejsapi: 1, origin: location.origin }, events: {
             onReady: (event) => { state.playerReady = true; const duration = event.target.getDuration() || state.selectedVideoDuration || state.lines.length * 7; el('timeline').max = String(Math.max(1, duration)); el('totalTime').textContent = formatTime(duration); updatePipelineStatus('點擊句子可跳轉'); startYouTubeSync(); },
             onError: (event) => { renderYouTubeFallback(videoId, '播放器錯誤碼 ' + event.data + '；已切換相容模式'); },
-            onStateChange: (event) => { if (window.YT && event.data === YT.PlayerState.PLAYING) { state.isPlaying = true; el('playBtn').textContent = 'Ⅱ'; el('playLabel').textContent = '播放中'; startYouTubeSync(); } else if (window.YT && (event.data === YT.PlayerState.PAUSED || event.data === YT.PlayerState.ENDED)) { state.isPlaying = false; el('playBtn').textContent = '▶'; el('playLabel').textContent = '逐句播放'; } }
+            onStateChange: (event) => { if (window.YT && event.data === YT.PlayerState.PLAYING) { state.isPlaying = true; el('playBtn').textContent = 'Ⅱ'; el('playLabel').textContent = '播放中'; startYouTubeSync(); } else if (window.YT && (event.data === YT.PlayerState.PAUSED || event.data === YT.PlayerState.ENDED)) { state.isPlaying = false; clearInterval(youtubeSyncTimer); el('playBtn').textContent = '▶'; el('playLabel').textContent = '逐句播放'; } }
           } });
         } catch (error) { renderYouTubeFallback(videoId, error.message + '；已切換相容模式'); }
       }
@@ -836,7 +837,7 @@
         } catch (error) { state.lyricsLoading = false; setLyricsMatchStatus('⚠ 同步歌詞暫時取得失敗；可稍後重試或使用手動備援。', true); updatePipelineStatus(error.message, true); }
       }
       function startYouTubeSync() {
-        clearInterval(youtubeSyncTimer); youtubeSyncTimer = setInterval(() => { if (youtubePlayer && youtubePlayer.getCurrentTime) syncLyrics(youtubePlayer.getCurrentTime()); }, 180);
+        clearInterval(youtubeSyncTimer); youtubeSyncTimer = setInterval(() => { if (youtubePlayer && youtubePlayer.getCurrentTime) syncLyrics(youtubePlayer.getCurrentTime()); }, 80);
       }
       function parseTimestamp(value) {
         const text = String(value || '').trim().replace(',', '.'); const match = text.match(/^(?:(\d+):)?(\d{1,2}):(\d{2})(?:\.(\d{1,3}))?$/);
@@ -861,13 +862,18 @@
         state.markIndex = Math.min(entries.length, state.lines.length - 1); el('timingSourceLabel').textContent = entries.length + ' 筆已匯入'; renderTimingList(); syncLyrics(getPlaybackTime()); showToast('時間碼已套用到原文，兩種空耳共用同一條時間軸');
       }
       function getPlaybackTime() { return youtubePlayer && youtubePlayer.getCurrentTime ? youtubePlayer.getCurrentTime() : Number(el('timeline').value) || 0; }
+      function scrollActiveLyric(index) {
+        if (!state.isPlaying) return;
+        const card = document.querySelector('.line-card[data-line-index="' + index + '"]');
+        if (card) card.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+      }
       function seekTo(seconds) {
         const target = Math.max(0, Number(seconds) || 0); if (youtubePlayer && youtubePlayer.seekTo) youtubePlayer.seekTo(target, true); el('timeline').value = String(target); el('currentTime').textContent = formatTime(target); syncLyrics(target); window.scrollTo({ top: Math.max(0, el('lyricsOutput').offsetTop - 120), behavior: 'smooth' });
       }
       function syncLyrics(time) {
-        if (!state.timing.length) return; const adjusted = Math.max(0, Number(time || 0) - state.offset); let index = state.timing.findIndex((item) => adjusted >= item.start && adjusted < item.end);
+        if (!state.timing.length) return; const actualTime = Math.max(0, Number(time || 0)); const visualTime = actualTime + (state.playerMode === 'karaoke' ? state.karaokeLead : 0); const adjusted = Math.max(0, visualTime - state.offset); let index = state.timing.findIndex((item) => adjusted >= item.start && adjusted < item.end);
         if (index < 0) { state.timing.forEach((item, itemIndex) => { if (adjusted >= item.start) index = itemIndex; }); }
-        if (index !== state.activeLine) { state.activeLine = index; renderTimingList(); }
+        if (index !== state.activeLine) { state.activeLine = index; renderTimingList(); scrollActiveLyric(index); }
         document.querySelectorAll('.line-card.is-live, .timing-item.is-active').forEach((node) => node.classList.remove('is-live', 'is-active'));
         document.querySelectorAll('.syllable.is-karaoke, .align-cell.is-karaoke').forEach((node) => node.classList.remove('is-karaoke'));
         if (index < 0) return;
@@ -875,7 +881,7 @@
         const card = document.querySelector('.line-card[data-line-index="' + index + '"]'); if (card) { card.classList.add('is-live'); const tokenNodes = card.querySelectorAll('.source-row .syllable'); if (tokenNodes.length) { const tokenIndex = Math.min(tokenNodes.length - 1, Math.floor(progress * tokenNodes.length)); card.querySelectorAll('[data-index="' + tokenIndex + '"]').forEach((node) => node.classList.add('is-karaoke')); } }
         const alignmentLine = document.querySelector('.alignment-line[data-line-index="' + index + '"]'); if (alignmentLine) { const cells = alignmentLine.querySelectorAll('.align-cell'); if (cells.length) { const tokenCount = state.lines[index].filter((token) => !/^\s+$/.test(token.source)).length; const tokenIndex = Math.min(tokenCount - 1, Math.floor(progress * tokenCount)); alignmentLine.querySelectorAll('[data-index="' + tokenIndex + '"]').forEach((node) => node.classList.add('is-karaoke')); } }
         const activeTiming = el('timingList').querySelector('.timing-item[data-timing-index="' + index + '"]'); if (activeTiming) activeTiming.classList.add('is-active');
-        el('currentTime').textContent = formatTime(time); if (youtubePlayer && youtubePlayer.getDuration) el('totalTime').textContent = formatTime(youtubePlayer.getDuration() || state.timing[state.timing.length - 1].end);
+        el('currentTime').textContent = formatTime(actualTime); if (youtubePlayer && youtubePlayer.getDuration) el('totalTime').textContent = formatTime(youtubePlayer.getDuration() || state.timing[state.timing.length - 1].end);
       }
       function showLearn(node) {
         const lineIndex = Number(node.dataset.lineIndex || (node.closest('.line-card, .alignment-line') && node.closest('.line-card, .alignment-line').dataset.lineIndex)); const tokenIndex = Number(node.dataset.index); const token = state.lines[lineIndex] && state.lines[lineIndex][tokenIndex]; if (!token || /^\s+$/.test(token.source)) return;
@@ -1031,11 +1037,121 @@
           bopomofo: romans.map(koreanRomanToBopomofo).join(' ')
         };
       }
+      const pinyinKoFull = {
+        wo: '워', xiang: '샹', ni: '니', mei: '메이', yi: '이', ge: '거', ye: '예', li: '리', dou: '도우', zai: '짜이',
+        ai: '아이', shi: '스', de: '더', xin: '씬', sheng: '셩', yin: '인', hao: '하오', chang: '창', jin: '진', tian: '티엔', hen: '헌',
+        ren: '런', ming: '밍', bu: '부', yao: '야오', kan: '칸', jian: '지엔', lai: '라이', qu: '취', hui: '후이', zhi: '즈',
+        chi: '츠', shi: '스', ri: '르', zhong: '종', guo: '궈', xue: '쉬에', shang: '샹', xia: '샤', nan: '난', bei: '베이',
+        dong: '동', xi: '시', lei: '레이', feng: '펑', yu: '위', yun: '윈', tian: '티엔', kong: '쿵', qi: '치', qing: '칭',
+        wang: '왕', wo: '워', men: '먼', ta: '타', zai: '짜이', zhe: '저', zhen: '전', zhi: '즈', shui: '쉐이', shuo: '숴',
+        du: '두', duo: '뚜어', shao: '샤오', zui: '쭈이', kuai: '콰이', wan: '완', guang: '광', liang: '량', yang: '양',
+        ju: '쥐', jue: '쥐에', jiao: '지아오', jie: '지에', jie: '지에', jia: '지아', qiao: '치아오', xiao: '샤오',
+        zhao: '자오', zhu: '주', chuan: '촨', chu: '추', shu: '슈', shou: '쇼우', rou: '로우', you: '요우',
+        zong: '쫑', cong: '총', song: '쏭', long: '롱', rong: '롱', tong: '통', hong: '홍', nong: '농',
+        ma: '마', ba: '바', pa: '파', fa: '파', da: '다', na: '나', la: '라', ka: '카', ga: '가', sa: '사',
+        se: '써', suo: '쒀', he: '허', le: '러', mo: '모', fo: '포', po: '포', bo: '보', bian: '비엔', mian: '미엔',
+        dian: '디엔', nian: '니엔', lian: '리엔', pian: '피엔', pian: '피엔', tiao: '티아오', diao: '디아오', niao: '니아오'
+      };
+      const pinyinJaFull = {
+        wo: 'ウォ', xiang: 'シャン', ni: 'ニ', mei: 'メイ', yi: 'イ', ge: 'ガ', ye: 'イェ', li: 'リ', dou: 'ドウ', zai: 'ザイ',
+        ai: 'アイ', shi: 'シ', de: 'ダ', xin: 'シン', sheng: 'ション', yin: 'イン', hao: 'ハオ', chang: 'チャン', jin: 'ジン',
+        tian: 'ティエン', hen: 'ヘン', ren: 'レン', ming: 'ミン', bu: 'ブ', yao: 'ヤオ', kan: 'カン', jian: 'ジエン', lai: 'ライ',
+        qu: 'チュ', hui: 'フイ', zhi: 'ジ', chi: 'チ', shi: 'シ', ri: 'リ', zhong: 'ジョン', guo: 'グオ', xue: 'シュエ',
+        shang: 'シャン', xia: 'シャ', nan: 'ナン', bei: 'ベイ', dong: 'ドン', xi: 'シ', lei: 'レイ', feng: 'フォン', yu: 'ユ',
+        yun: 'ユン', kong: 'コン', qi: 'チ', qing: 'チン', wang: 'ワン', men: 'メン', ta: 'タ', zhe: 'ジャ', zhen: 'ジェン',
+        shui: 'シュイ', shuo: 'シュオ', du: 'ドゥ', duo: 'ドゥオ', shao: 'シャオ', zui: 'ズイ', kuai: 'クアイ', wan: 'ワン',
+        guang: 'グアン', liang: 'リャン', yang: 'ヤン', ju: 'ジュ', jue: 'ジュエ', jiao: 'ジアオ', jie: 'ジエ', jia: 'ジア',
+        qiao: 'チアオ', xiao: 'シャオ', zhao: 'ジャオ', zhu: 'ジュ', chuan: 'チュアン', chu: 'チュ', shu: 'シュ', shou: 'ショウ',
+        rou: 'ロウ', you: 'ヨウ', zong: 'ゾン', cong: 'ツォン', song: 'ソン', long: 'ロン', rong: 'ロン', tong: 'トン',
+        hong: 'ホン', nong: 'ノン', ma: 'マ', ba: 'バ', pa: 'パ', fa: 'ファ', da: 'ダ', na: 'ナ', la: 'ラ', ka: 'カ',
+        ga: 'ガ', sa: 'サ', se: 'ス', suo: 'スオ', he: 'ヘ', le: 'ル', mo: 'モ', fo: 'フォ', po: 'ポ', bo: 'ボ',
+        bian: 'ビエン', mian: 'ミエン', dian: 'ディエン', nian: 'ニエン', lian: 'リエン', pian: 'ピエン', tiao: 'ティアオ',
+        diao: 'ディアオ', niao: 'ニアオ'
+      };
+      const pinyinKoInitial = { b: 7, p: 8, m: 6, f: 17, d: 3, t: 16, n: 2, l: 5, g: 0, k: 15, h: 18, j: 12, q: 14, x: 9, zh: 12, ch: 14, sh: 9, r: 5, z: 12, c: 14, s: 9, y: 11, w: 11 };
+      const pinyinKoRime = {
+        a: [0, 0], ai: [1, 0], an: [0, 4], ang: [0, 21], e: [4, 0], en: [4, 4], eng: [4, 21], er: [4, 8],
+        i: [20, 0], ia: [2, 0], ian: [2, 4], iang: [2, 21], ie: [7, 0], in: [20, 4], ing: [20, 21], iong: [12, 21], iu: [17, 0],
+        o: [8, 0], ong: [8, 21], u: [13, 0], ua: [9, 0], uan: [9, 4], uang: [9, 21], ue: [15, 0], un: [13, 4], uo: [14, 0],
+        ü: [16, 0], üan: [16, 4], ün: [16, 4],
+        ao: '아오', ei: '에이', ou: '오우', iao: '야오', uai: '와이', ui: '웨이'
+      };
+      function composeHangul(initial, rime) {
+        const initialIndex = pinyinKoInitial[initial]; const value = pinyinKoRime[rime];
+        if (initialIndex === undefined || !Array.isArray(value)) return '';
+        return String.fromCharCode(0xAC00 + (initialIndex * 21 + value[0]) * 28 + value[1]);
+      }
+      function pinyinToHangul(value) {
+        const syllable = String(value || '').toLowerCase().replace(/ü/g, 'ü');
+        if (pinyinKoFull[syllable]) return pinyinKoFull[syllable];
+        const initial = Object.keys(pinyinKoInitial).sort((a, b) => b.length - a.length).find((item) => syllable.startsWith(item)) || '';
+        const rime = syllable.slice(initial.length);
+        const composed = composeHangul(initial, rime);
+        if (composed) return composed;
+        return pinyinKoFull[rime] || '음';
+      }
+      function pinyinToKana(value) {
+        const syllable = String(value || '').toLowerCase();
+        if (pinyinJaFull[syllable]) return pinyinJaFull[syllable];
+        const initial = Object.keys(pinyinKoInitial).sort((a, b) => b.length - a.length).find((item) => syllable.startsWith(item)) || '';
+        const rime = syllable.slice(initial.length);
+        const kanaInitial = { b: 'バ', p: 'パ', m: 'マ', f: 'ファ', d: 'ダ', t: 'タ', n: 'ナ', l: 'ラ', g: 'ガ', k: 'カ', h: 'ハ', j: 'ジ', q: 'チ', x: 'シ', zh: 'ジ', ch: 'チ', sh: 'シ', r: 'ル', z: 'ズ', c: 'ツ', s: 'ス', y: '', w: '' }[initial] || '';
+        const kanaRime = { a: 'ア', ai: 'アイ', an: 'アン', ang: 'アン', e: 'オ', ei: 'エイ', en: 'エン', eng: 'オン', er: 'アー', i: 'イ', ia: 'ヤ', ian: 'イエン', iang: 'ヤン', iao: 'ヤオ', ie: 'イエ', in: 'イン', ing: 'イン', iong: 'ヨン', iu: 'ヨウ', o: 'オ', ong: 'オン', ou: 'オウ', u: 'ウ', ua: 'ワ', uan: 'ワン', uang: 'ワン', ue: 'ウェ', ui: 'ウェイ', un: 'ウン', uo: 'ウォ', ü: 'ユ', üan: 'ユエン', ün: 'ユン' }[rime] || '';
+        return kanaInitial + kanaRime || 'ア';
+      }
+      function chinesePinyinSyllables(token) {
+        try {
+          if (window.pinyinPro && typeof window.pinyinPro.pinyin === 'function') {
+            const result = window.pinyinPro.pinyin(token, { toneType: 'none', type: 'array', nonZh: 'removed' });
+            if (Array.isArray(result) && result.length) return result.filter((item) => /^[a-zü]+$/i.test(item));
+          }
+        } catch { /* use the small offline fallback below */ }
+        const fallback = { '我': 'wo', '想': 'xiang', '你': 'ni', '每': 'mei', '一': 'yi', '個': 'ge', '夜': 'ye', '裡': 'li', '都': 'dou', '在': 'zai', '愛': 'ai', '是': 'shi', '的': 'de', '心': 'xin', '聲': 'sheng', '音': 'yin', '好': 'hao', '唱': 'chang' };
+        return Array.from(token).map((character) => fallback[character] || '').filter(Boolean);
+      }
+      function chineseSoundFallback(token) {
+        const syllables = chinesePinyinSyllables(token);
+        if (!syllables.length) return { zh: token, ko: '음', ja: 'ア', bopomofo: '' };
+        return { zh: token, ko: syllables.map(pinyinToHangul).join(' '), ja: syllables.map(pinyinToKana).join(' '), bopomofo: '' };
+      }
+      const jaMora = {
+        'ア': ['아', '啊'], 'イ': ['이', '伊'], 'ウ': ['우', '嗚'], 'エ': ['에', '欸'], 'オ': ['오', '喔'],
+        'カ': ['카', '卡'], 'キ': ['키', '基'], 'ク': ['쿠', '庫'], 'ケ': ['케', '開'], 'コ': ['코', '口'],
+        'サ': ['사', '撒'], 'シ': ['시', '西'], 'ス': ['스', '蘇'], 'セ': ['세', '塞'], 'ソ': ['소', '索'],
+        'タ': ['타', '塔'], 'チ': ['치', '契'], 'ツ': ['츠', '次'], 'テ': ['테', '特'], 'ト': ['토', '托'],
+        'ナ': ['나', '拿'], 'ニ': ['니', '尼'], 'ヌ': ['누', '努'], 'ネ': ['네', '捏'], 'ノ': ['노', '諾'],
+        'ハ': ['하', '哈'], 'ヒ': ['히', '希'], 'フ': ['후', '呼'], 'ヘ': ['헤', '嘿'], 'ホ': ['호', '齁'],
+        'マ': ['마', '媽'], 'ミ': ['미', '咪'], 'ム': ['무', '姆'], 'メ': ['메', '美'], 'モ': ['모', '摸'],
+        'ヤ': ['야', '呀'], 'ユ': ['유', '優'], 'ヨ': ['요', '唷'], 'ラ': ['라', '拉'], 'リ': ['리', '里'], 'ル': ['루', '魯'], 'レ': ['레', '勒'], 'ロ': ['로', '羅'],
+        'ワ': ['와', '哇'], 'ヲ': ['오', '喔'], 'ン': ['ㄴ', '恩'],
+        'ガ': ['가', '嘎'], 'ギ': ['기', '基'], 'グ': ['구', '咕'], 'ゲ': ['게', '給'], 'ゴ': ['고', '哥'],
+        'ザ': ['자', '雜'], 'ジ': ['지', '基'], 'ズ': ['즈', '祖'], 'ゼ': ['제', '介'], 'ゾ': ['조', '啾'],
+        'ダ': ['다', '達'], 'ヂ': ['지', '基'], 'ヅ': ['즈', '祖'], 'デ': ['데', '得'], 'ド': ['도', '都'],
+        'バ': ['바', '巴'], 'ビ': ['비', '比'], 'ブ': ['부', '布'], 'ベ': ['베', '貝'], 'ボ': ['보', '波'],
+        'パ': ['파', '帕'], 'ピ': ['피', '皮'], 'プ': ['푸', '普'], 'ペ': ['페', '佩'], 'ポ': ['포', '波'], 'ヴ': ['부', '武']
+      };
+      const jaDigraph = { 'キャ': ['캬', '恰'], 'キュ': ['큐', '丘'], 'キョ': ['쿄', '啾'], 'シャ': ['샤', '夏'], 'シュ': ['슈', '休'], 'ショ': ['쇼', '修'], 'チャ': ['차', '恰'], 'チュ': ['추', '秋'], 'チョ': ['초', '秋'], 'ニャ': ['냐', '娘'], 'ニュ': ['뉴', '牛'], 'ニョ': ['뇨', '女'], 'ヒャ': ['햐', '呀'], 'ヒュ': ['휴', '休'], 'ヒョ': ['효', '喲'], 'ミャ': ['먀', '喵'], 'ミュ': ['뮤', '謬'], 'ミョ': ['묘', '苗'], 'リャ': ['랴', '呀'], 'リュ': ['류', '流'], 'リョ': ['료', '喲'], 'ギャ': ['갸', '嘎'], 'ギュ': ['규', '咕'], 'ギョ': ['교', '喲'], 'ジャ': ['자', '恰'], 'ジュ': ['주', '朱'], 'ジョ': ['조', '啾'], 'ビャ': ['뱌', '呀'], 'ビュ': ['뷰', '優'], 'ビョ': ['뵤', '喲'], 'ピャ': ['퍄', '呀'], 'ピュ': ['퓨', '優'], 'ピョ': ['표', '喲'] };
+      const jaReading = { '私': 'わたし', '僕': 'ぼく', '君': 'きみ', '好き': 'すき', '愛': 'あい', '恋': 'こい', '心': 'こころ', '夜': 'よる', '夢': 'ゆめ', '今日': 'きょう', '明日': 'あした', '世界': 'せかい', '人': 'ひと', '歌': 'うた', '空': 'そら', '星': 'ほし', '涙': 'なみだ', '声': 'こえ', '思い': 'おもい', '想い': 'おもい', '何': 'なに', '時': 'とき', '道': 'みち' };
+      function toKatakana(value) { return String(value).replace(/[ぁ-ゖ]/g, (character) => String.fromCharCode(character.charCodeAt(0) + 0x60)); }
+      function japaneseKanaSound(token) {
+        const kana = toKatakana(token); const ko = []; const zh = [];
+        for (let index = 0; index < kana.length;) {
+          const pair = kana.slice(index, index + 2); const digraph = jaDigraph[pair];
+          if (digraph) { ko.push(digraph[0]); zh.push(digraph[1]); index += 2; continue; }
+          const character = kana[index];
+          if (character === 'ッ') { index += 1; continue; }
+          if (character === 'ー') { if (ko.length) ko[ko.length - 1] += 'ー'; index += 1; continue; }
+          const mora = jaMora[character]; if (mora) { ko.push(mora[0]); zh.push(mora[1]); }
+          index += 1;
+        }
+        return { zh: zh.join(' ') || '？', ko: ko.join(' ') || '발음', ja: token, bopomofo: '' };
+      }
       function fallbackToken(token, language) {
         if (/^\s+$/.test(token)) return { source: token, zh: ' ', ko: ' ', ja: ' ', bopomofo: '' };
         if (language === 'zh') {
-          const roman = { '的': ['더', 'ダ', 'ㄉㄜ˙'], '人': ['런', 'レン', 'ㄖㄣˊ'], '天': ['티엔', 'テン', 'ㄊㄧㄢ'], '嗎': ['마', 'マ', 'ㄇㄚ˙'], '我': ['워', 'ウォ', 'ㄨㄛˇ'], '你': ['니', 'ニ', 'ㄋㄧˇ'] }[token] || [token, token, ''];
-          return { source: token, zh: token, ko: roman[0], ja: roman[1], bopomofo: roman[2] };
+          const roman = { '的': ['더', 'ダ', 'ㄉㄜ˙'], '人': ['런', 'レン', 'ㄖㄣˊ'], '天': ['티엔', 'テン', 'ㄊㄧㄢ'], '嗎': ['마', 'マ', 'ㄇㄚ˙'], '我': ['워', 'ウォ', 'ㄨㄛˇ'], '你': ['니', 'ニ', 'ㄋㄧˇ'] }[token];
+          if (roman) return { source: token, zh: token, ko: roman[0], ja: roman[1], bopomofo: roman[2] };
+          const values = chineseSoundFallback(token); return { source: token, zh: values.zh, ko: values.ko, ja: values.ja, bopomofo: values.bopomofo };
         }
         if (language === 'ko') {
           if (/^[가-힣]+$/.test(token)) {
@@ -1045,8 +1161,12 @@
           const values = koMap[token] || [token, token, token, ''];
           return { source: token, zh: values[0], ko: values[1], ja: values[2], bopomofo: values[3] };
         }
-        const values = jaMap[token] || [token, token, token, ''];
-        return { source: token, zh: values[0], ko: values[1], ja: values[2], bopomofo: values[3] };
+        const values = jaMap[token];
+        if (values) return { source: token, zh: values[0], ko: values[1], ja: values[2], bopomofo: values[3] };
+        const reading = jaReading[token];
+        if (reading) { const sounds = japaneseKanaSound(reading); return { source: token, zh: sounds.zh, ko: sounds.ko, ja: token, bopomofo: sounds.bopomofo }; }
+        if (/[ぁ-ゖァ-ヺー]/.test(token)) { const sounds = japaneseKanaSound(token); return { source: token, zh: sounds.zh, ko: sounds.ko, ja: sounds.ja, bopomofo: sounds.bopomofo }; }
+        return { source: token, zh: '？', ko: '발음', ja: token, bopomofo: '' };
       }
       function makeToken(token, language) {
         if (/^\s+$/.test(token)) return fallbackToken(token, language);
