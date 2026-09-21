@@ -1,3 +1,7 @@
 .chrome-smoke-profile/
+node_modules/
+site-package*.tar.gz
+site-package*.zip
 Smart Sticky Next_智慧便利貼工作台.html
+Smart Sticky Next 3.0_智慧便利貼工作台.html
 便利貼 (5)_智慧助理整合版.html

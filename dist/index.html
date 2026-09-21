@@ -515,7 +515,8 @@
   </main>
   <div class="toast" id="toast" role="status"></div>
 
-  <script src="https://unpkg.com/pinyin-pro@3.29.4/dist/index.js"></script>
+  <script src="phonetics-core.js"></script>
+  <script src="vendor/pinyin-pro.js"></script>
   <script>
     (() => {
       const samples = {
@@ -936,14 +937,14 @@
       }
       function splitSourceLine(line, language) {
         if (language === 'ko') {
-          const phraseTokens = line.match(/너를|너무|사랑해|오늘도|생각에|잠이|들어|[가-힣]|[\s]+|[^가-힣\s]/g);
+          const phraseTokens = line.match(/너를|너무|사랑해|오늘도|생각에|잠이|들어|[가-힣]+|[\s]+|[^가-힣\s]/g);
           return phraseTokens || [line];
         }
         if (language === 'ja') {
           const phraseTokens = line.match(/君が好き|きみ|好き|想う|[一-龯々]|[ぁ-ゖァ-ヺー]+|[\s]+|[^一-龯々ぁ-ゖァ-ヺー\s]/g);
           return phraseTokens || [line];
         }
-        const phraseTokens = line.match(/每一個夜裡都在想你|[\u4e00-\u9fff]|[\s]+|[^\u4e00-\u9fff\s]/g);
+        const phraseTokens = line.match(/每一個夜裡都在想你|˙?[ㄅ-ㆎ]+[ˊˇˋ]?|[\u4e00-\u9fff]|[\s]+|[^\u4e00-\u9fffㄅ-ㆎˊˇˋ˙\s]/g);
         return phraseTokens || [line];
       }
 
@@ -1028,6 +1029,7 @@
         return (koBopomofoOnset[parsed.initial] + (koBopomofoVowel[parsed.vowel] || '') + (koBopomofoCoda[parsed.coda] || '')).trim();
       }
       function koreanSoundFallback(token) {
+        if (window.PhoneticsCore) return window.PhoneticsCore.fromKorean(token);
         const syllables = Array.from(token).filter((character) => /^[가-힣]$/.test(character));
         const romans = syllables.map(koreanSyllableToRoman);
         return {
@@ -1102,8 +1104,8 @@
       function chinesePinyinSyllables(token) {
         try {
           if (window.pinyinPro && typeof window.pinyinPro.pinyin === 'function') {
-            const result = window.pinyinPro.pinyin(token, { toneType: 'none', type: 'array', nonZh: 'removed' });
-            if (Array.isArray(result) && result.length) return result.filter((item) => /^[a-zü]+$/i.test(item));
+            const result = window.pinyinPro.pinyin(token, { toneType: 'num', type: 'array', nonZh: 'removed' });
+            if (Array.isArray(result) && result.length) return result.filter((item) => /^[a-züv:]+[0-5]?$/i.test(item));
           }
         } catch { /* use the small offline fallback below */ }
         const fallback = { '我': 'wo', '想': 'xiang', '你': 'ni', '每': 'mei', '一': 'yi', '個': 'ge', '夜': 'ye', '裡': 'li', '都': 'dou', '在': 'zai', '愛': 'ai', '是': 'shi', '的': 'de', '心': 'xin', '聲': 'sheng', '音': 'yin', '好': 'hao', '唱': 'chang' };
@@ -1112,6 +1114,7 @@
       function chineseSoundFallback(token) {
         const syllables = chinesePinyinSyllables(token);
         if (!syllables.length) return { zh: token, ko: '음', ja: 'ア', bopomofo: '' };
+        if (window.PhoneticsCore) return window.PhoneticsCore.fromPinyinSyllables(syllables, token);
         return { zh: token, ko: syllables.map(pinyinToHangul).join(' '), ja: syllables.map(pinyinToKana).join(' '), bopomofo: '' };
       }
       const jaMora = {
@@ -1134,6 +1137,7 @@
       const jaReading = { '私': 'わたし', '僕': 'ぼく', '君': 'きみ', '好き': 'すき', '愛': 'あい', '恋': 'こい', '心': 'こころ', '夜': 'よる', '夢': 'ゆめ', '今日': 'きょう', '明日': 'あした', '世界': 'せかい', '人': 'ひと', '歌': 'うた', '空': 'そら', '星': 'ほし', '涙': 'なみだ', '声': 'こえ', '思い': 'おもい', '想い': 'おもい', '何': 'なに', '時': 'とき', '道': 'みち' };
       function toKatakana(value) { return String(value).replace(/[ぁ-ゖ]/g, (character) => String.fromCharCode(character.charCodeAt(0) + 0x60)); }
       function japaneseKanaSound(token) {
+        if (window.PhoneticsCore) return window.PhoneticsCore.fromJapanese(token);
         const kana = toKatakana(token); const ko = []; const zh = [];
         for (let index = 0; index < kana.length;) {
           const pair = kana.slice(index, index + 2); const digraph = jaDigraph[pair];
@@ -1148,7 +1152,12 @@
       }
       function fallbackToken(token, language) {
         if (/^\s+$/.test(token)) return { source: token, zh: ' ', ko: ' ', ja: ' ', bopomofo: '' };
+        if (/^[\p{P}\p{S}]+$/u.test(token)) return { source: token, zh: token, ko: token, ja: token, bopomofo: '' };
         if (language === 'zh') {
+          if (/^˙?[ㄅ-ㆎ]+[ˊˇˋ]?$/.test(token) && window.PhoneticsCore) {
+            const values = window.PhoneticsCore.fromBopomofo(token);
+            return { source: token, zh: token, ko: values.ko, ja: values.ja, bopomofo: token };
+          }
           const roman = { '的': ['더', 'ダ', 'ㄉㄜ˙'], '人': ['런', 'レン', 'ㄖㄣˊ'], '天': ['티엔', 'テン', 'ㄊㄧㄢ'], '嗎': ['마', 'マ', 'ㄇㄚ˙'], '我': ['워', 'ウォ', 'ㄨㄛˇ'], '你': ['니', 'ニ', 'ㄋㄧˇ'] }[token];
           if (roman) return { source: token, zh: token, ko: roman[0], ja: roman[1], bopomofo: roman[2] };
           const values = chineseSoundFallback(token); return { source: token, zh: values.zh, ko: values.ko, ja: values.ja, bopomofo: values.bopomofo };
