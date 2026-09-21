@@ -4,6 +4,7 @@
   const HANGUL_INITIALS = ['ㄱ', 'ㄲ', 'ㄴ', 'ㄷ', 'ㄸ', 'ㄹ', 'ㅁ', 'ㅂ', 'ㅃ', 'ㅅ', 'ㅆ', 'ㅇ', 'ㅈ', 'ㅉ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'];
   const HANGUL_VOWELS = ['ㅏ', 'ㅐ', 'ㅑ', 'ㅒ', 'ㅓ', 'ㅔ', 'ㅕ', 'ㅖ', 'ㅗ', 'ㅘ', 'ㅙ', 'ㅚ', 'ㅛ', 'ㅜ', 'ㅝ', 'ㅞ', 'ㅟ', 'ㅠ', 'ㅡ', 'ㅢ', 'ㅣ'];
   const HANGUL_FINALS = ['', 'ㄱ', 'ㄲ', 'ㄳ', 'ㄴ', 'ㄵ', 'ㄶ', 'ㄷ', 'ㄹ', 'ㄺ', 'ㄻ', 'ㄼ', 'ㄽ', 'ㄾ', 'ㄿ', 'ㅀ', 'ㅁ', 'ㅂ', 'ㅄ', 'ㅅ', 'ㅆ', 'ㅇ', 'ㅈ', 'ㅊ', 'ㅋ', 'ㅌ', 'ㅍ', 'ㅎ'];
+  const BOPOMOFO_SYMBOLS = Array.from('ㄅㄆㄇㄈㄉㄊㄋㄌㄍㄎㄏㄐㄑㄒㄓㄔㄕㄖㄗㄘㄙㄚㄛㄜㄝㄞㄟㄠㄡㄢㄣㄤㄥㄦㄧㄨㄩ');
   const KO_ONSETS = ['g', 'kk', 'n', 'd', 'tt', 'r', 'm', 'b', 'pp', 's', 'ss', '', 'j', 'jj', 'ch', 'k', 't', 'p', 'h'];
   const KO_VOWELS = ['a', 'ae', 'ya', 'yae', 'eo', 'e', 'yeo', 'ye', 'o', 'wa', 'wae', 'oe', 'yo', 'u', 'wo', 'we', 'wi', 'yu', 'eu', 'ui', 'i'];
   const KO_CODAS = ['', 'k', 'k', 'k', 'n', 'n', 'n', 't', 'l', 'k', 'm', 'l', 'l', 'l', 'p', 'l', 'm', 'p', 'p', 't', 't', 'ng', 't', 't', 'k', 't', 'p', 't'];
@@ -43,7 +44,11 @@
   function koreanUnits(text) {
     const units = Array.from(String(text)).map((character) => {
       const part = decomposeHangul(character);
-      return part ? { character, ...part, onset: KO_ONSETS[part.initial], vowelSound: KO_VOWELS[part.vowel], coda: KO_CODAS[part.final] } : { character };
+      if (part) return { character, ...part, onset: KO_ONSETS[part.initial], vowelSound: KO_VOWELS[part.vowel], coda: KO_CODAS[part.final] };
+      const initial = HANGUL_INITIALS.indexOf(character); const vowel = HANGUL_VOWELS.indexOf(character);
+      if (initial >= 0) return { character, standaloneOnset: KO_ONSETS[initial], initial };
+      if (vowel >= 0) return { character, standaloneVowel: KO_VOWELS[vowel], vowel };
+      return { character };
     });
     for (let i = 0; i < units.length - 1; i += 1) {
       const current = units[i]; const next = units[i + 1];
@@ -68,6 +73,11 @@
   }
 
   function koreanUnitTargets(unit) {
+    if (unit.standaloneVowel) return { zh: ZH_CHAR_VOWEL[unit.standaloneVowel] || '啊', ja: JA_VOWEL[unit.standaloneVowel] || 'ア', bopomofo: ZH_VOWEL[unit.standaloneVowel] || '' };
+    if (unit.standaloneOnset !== undefined) {
+      if (unit.character === 'ㅇ') return { zh: '（無聲）', ja: '（無音）', bopomofo: '' };
+      return { zh: ZH_CHAR_ONSET[unit.standaloneOnset] || '音', ja: JA_ONSET[unit.standaloneOnset] || '音', bopomofo: ZH_ONSET[unit.standaloneOnset] || '' };
+    }
     if (unit.initial === undefined) return { zh: unit.character, ja: unit.character, bopomofo: '' };
     const base = unit.onset + unit.vowelSound;
     const exact = KO_EXACT[base];
@@ -249,7 +259,7 @@
   }
 
   root.PhoneticsCore = {
-    inventory: { hangulInitials: HANGUL_INITIALS.slice(), hangulVowels: HANGUL_VOWELS.slice(), hangulFinals: HANGUL_FINALS.slice(), japaneseGojuon: GOJUON.slice(), bopomofoInitials: Object.values(PINYIN_INITIAL_BPMF).filter(Boolean), bopomofoFinals: Object.values(PINYIN_FINAL_BPMF) },
+    inventory: { hangulInitials: HANGUL_INITIALS.slice(), hangulVowels: HANGUL_VOWELS.slice(), hangulFinals: HANGUL_FINALS.slice(), japaneseGojuon: GOJUON.slice(), bopomofoSymbols: BOPOMOFO_SYMBOLS.slice(), bopomofoInitials: Object.values(PINYIN_INITIAL_BPMF).filter(Boolean), bopomofoFinals: Object.values(PINYIN_FINAL_BPMF) },
     fromKorean, fromJapanese, fromPinyinSyllables, fromBopomofo, pinyinToBopomofo, pinyinToHangul, pinyinToKana, bopomofoToPinyin, toKatakana, japaneseMoras
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

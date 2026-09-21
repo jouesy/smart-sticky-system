@@ -931,13 +931,13 @@
         return String(value).replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
       }
       function detectLanguage(text) {
-        if (/[가-힣]/.test(text)) return 'ko';
+        if (/[가-힣ㄱ-ㅎㅏ-ㅣ]/.test(text)) return 'ko';
         if (/[぀-ヿ]/.test(text)) return 'ja';
         return 'zh';
       }
       function splitSourceLine(line, language) {
         if (language === 'ko') {
-          const phraseTokens = line.match(/너를|너무|사랑해|오늘도|생각에|잠이|들어|[가-힣]+|[\s]+|[^가-힣\s]/g);
+          const phraseTokens = line.match(/너를|너무|사랑해|오늘도|생각에|잠이|들어|[가-힣ㄱ-ㅎㅏ-ㅣ]+|[\s]+|[^가-힣ㄱ-ㅎㅏ-ㅣ\s]/g);
           return phraseTokens || [line];
         }
         if (language === 'ja') {
@@ -1163,7 +1163,7 @@
           const values = chineseSoundFallback(token); return { source: token, zh: values.zh, ko: values.ko, ja: values.ja, bopomofo: values.bopomofo };
         }
         if (language === 'ko') {
-          if (/^[가-힣]+$/.test(token)) {
+          if (/^[가-힣ㄱ-ㅎㅏ-ㅣ]+$/.test(token)) {
             const values = koreanSoundFallback(token);
             return { source: token, zh: values.zh, ko: values.ko, ja: values.ja, bopomofo: values.bopomofo };
           }
