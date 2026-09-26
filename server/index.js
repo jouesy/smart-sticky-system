@@ -1,5 +1,6 @@
 const YTMUSIC_ORIGIN = 'https://music.youtube.com';
 const YTMUSIC_API = YTMUSIC_ORIGIN + '/youtubei/v1';
+const LRCLIB_API = 'https://lrclib.net/api';
 const SONG_SEARCH_PARAMS = 'EgWKAQIIAWoMEA4QChADEAQQCRAF';
 
 function currentClientVersion() {
@@ -204,6 +205,64 @@ async function handleLyrics(url) {
   return json(parseLyricsResponse(lyrics, videoId, browseId), 200, 1800);
 }
 
+function lyricQuery(url) {
+  const clean = (name, max) => String(url.searchParams.get(name) || '').trim().slice(0, max);
+  return {
+    trackName: clean('track_name', 180),
+    artistName: clean('artist_name', 180),
+    albumName: clean('album_name', 180),
+    duration: Math.max(0, Math.round(Number(url.searchParams.get('duration')) || 0))
+  };
+}
+
+async function lrclibRequest(path, params) {
+  const url = new URL(LRCLIB_API + path);
+  for (const [key, value] of Object.entries(params)) if (value !== '' && value !== 0) url.searchParams.set(key, String(value));
+  let response;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      response = await fetch(url, {
+        headers: {
+          Accept: 'application/json',
+          'User-Agent': 'KaraokeEar/2.0 (Korean-Chinese-Japanese lyric phonetics)'
+        }
+      });
+    } catch (error) {
+      if (attempt === 1) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 180));
+      continue;
+    }
+    if (attempt === 0 && (response.status === 429 || response.status >= 500)) {
+      await new Promise((resolve) => setTimeout(resolve, 180));
+      continue;
+    }
+    break;
+  }
+  if (!response) throw new Error('同步歌詞服務沒有回應');
+  if (response.status === 404) return null;
+  const responseText = await response.text();
+  if (!response.ok) {
+    const detail = responseText.replace(/\s+/g, ' ').trim().slice(0, 180);
+    console.error('LRCLIB upstream response', { path, status: response.status, detail });
+    throw new Error('同步歌詞服務回應 ' + response.status);
+  }
+  try { return JSON.parse(responseText); } catch { throw new Error('同步歌詞服務回傳格式無效'); }
+}
+
+async function handleLrclibSearch(url) {
+  const query = lyricQuery(url);
+  if (!query.trackName || !query.artistName) return json({ error: '請提供歌名與歌手' }, 400);
+  const exact = await lrclibRequest('/get', {
+    track_name: query.trackName,
+    artist_name: query.artistName,
+    album_name: query.albumName,
+    duration: query.duration
+  });
+  if (exact && (exact.syncedLyrics || exact.plainLyrics)) return json({ source: 'LRCLIB', items: [exact] }, 200, 1800);
+  const matches = await lrclibRequest('/search', { track_name: query.trackName, artist_name: query.artistName });
+  return json({ source: 'LRCLIB', items: Array.isArray(matches) ? matches : [] }, 200, 900);
+}
+
 function json(data, status, maxAge) {
   return new Response(JSON.stringify(data), {
     status,
@@ -229,10 +288,11 @@ const worker = {
     try {
       if (request.method === 'GET' && url.pathname === '/api/ytmusic/search') return await handleSearch(url);
       if (request.method === 'GET' && url.pathname === '/api/ytmusic/lyrics') return await handleLyrics(url);
+      if (request.method === 'GET' && url.pathname === '/api/lyrics/search') return await handleLrclibSearch(url);
       return await serveAsset(request, env);
     } catch (error) {
-      console.error('YT Music API error', error);
-      return json({ error: error instanceof Error ? error.message : 'YT Music 服務暫時無法回應' }, 502);
+      console.error('Lyrics API error', error);
+      return json({ error: error instanceof Error ? error.message : '歌詞服務暫時無法回應' }, 502);
     }
   }
 };

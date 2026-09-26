@@ -727,15 +727,13 @@
         return { score: Math.round((titleScore * .4 + artistScore * .3 + durationScore * .2 + versionScore * .1) * 100), diff, titleScore, artistScore, durationScore, versionScore };
       }
       async function fetchLrclibCandidates(meta) {
-        const getParams = new URLSearchParams({ track_name: meta.trackName, artist_name: meta.artistName });
-        if (meta.albumName) getParams.set('album_name', meta.albumName);
-        if (meta.duration > 0) getParams.set('duration', String(Math.round(meta.duration)));
-        const getResponse = await fetch('https://lrclib.net/api/get?' + getParams.toString(), { headers: { Accept: 'application/json' } });
-        if (getResponse.ok) { const record = await getResponse.json(); return record ? [record] : []; }
-        const searchParams = new URLSearchParams({ q: meta.trackName + ' ' + meta.artistName });
-        const searchResponse = await fetch('https://lrclib.net/api/search?' + searchParams.toString(), { headers: { Accept: 'application/json' } });
-        if (!searchResponse.ok) throw new Error('同步歌詞服務暫時無法回應');
-        const data = await searchResponse.json(); return Array.isArray(data) ? data : [];
+        const params = new URLSearchParams({ track_name: meta.trackName, artist_name: meta.artistName });
+        if (meta.albumName) params.set('album_name', meta.albumName);
+        if (meta.duration > 0) params.set('duration', String(Math.round(meta.duration)));
+        const response = await fetch('/api/lyrics/search?' + params.toString(), { headers: { Accept: 'application/json' } });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(data.error || '同步歌詞服務暫時無法回應');
+        return Array.isArray(data.items) ? data.items : [];
       }
       async function fetchYouTubeMusicLyrics(videoId) {
         const response = await fetch(YTMUSIC_API_BASE + '/lyrics?videoId=' + encodeURIComponent(videoId), { headers: { Accept: 'application/json' } });
